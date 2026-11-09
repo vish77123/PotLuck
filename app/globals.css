@@ -19,6 +19,8 @@
   --gold-grad: linear-gradient(180deg, #f2d896 0%, #d6ae5c 50%, #a97e35 100%);
   --gold-sh: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 2px 0 #6f5020, 0 10px 22px rgba(0, 0, 0, 0.45);
   --felt: #0f4a31;
+  --felt-hi: #1e734b;
+  --felt-lo: #06281a;
   --felt-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .3 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), radial-gradient(ellipse at 50% 42%, #1e734b 0%, #0f4a31 52%, #06281a 100%);
   --rail: linear-gradient(180deg, #2e1f14, #120b07);
   --rail-pin: rgba(229, 196, 124, 0.45);
@@ -52,6 +54,8 @@
   --gold-grad: linear-gradient(180deg, #f4dc9e 0%, #d9b366 50%, #b08638 100%);
   --gold-sh: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 2px 0 #9a7330, 0 8px 18px rgba(120, 90, 30, 0.25);
   --felt: #2e7c52;
+  --felt-hi: #48a274;
+  --felt-lo: #1c5a39;
   --felt-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .18 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), radial-gradient(ellipse at 50% 42%, #48a274 0%, #2e7c52 52%, #1c5a39 100%);
   --rail: linear-gradient(180deg, #8d6039, #5a3a21);
   --rail-pin: rgba(244, 220, 158, 0.7);
@@ -150,6 +154,12 @@ body {
   color: var(--on-felt);
 }
 
+/* Same felt without the SVG noise texture, for the PDF and the share image (image capture can't draw the filter). */
+.felt-flat {
+  background: radial-gradient(ellipse at 50% 42%, var(--felt-hi) 0%, var(--felt) 52%, var(--felt-lo) 100%);
+  color: var(--on-felt);
+}
+
 .press:active:not(:disabled) {
   transform: scale(0.97);
 }
@@ -213,5 +223,40 @@ html[data-motion="off"] *::after {
 @keyframes pl-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* Export PDF: print only the report copy, always in the light theme. */
+.print-only {
+  display: none;
+}
+@media print {
+  html,
+  body {
+    background: #fff !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .print-only,
+  .print-only * {
+    visibility: visible;
+  }
+  .print-only {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .avoid-break {
+    break-inside: avoid;
+  }
+  @page {
+    margin: 12mm;
   }
 }

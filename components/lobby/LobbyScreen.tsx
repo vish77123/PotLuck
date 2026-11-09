@@ -2,6 +2,7 @@
 
 import { useConvex } from "convex/react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { GamesCard } from "@/components/lobby/GamesCard";
 import { LastGameCard } from "@/components/lobby/LastGameCard";
@@ -14,11 +15,13 @@ import type { SessionState } from "@/components/lobby/types";
 import { WalletCard } from "@/components/lobby/WalletCard";
 import { WalletSheet } from "@/components/wallet/WalletSheet";
 import { BackButton, GoldButton, SectionTitle, SecondaryButton, TextField } from "@/components/ui/controls";
+import { Dialog } from "@/components/ui/Dialog";
 import { Sheet } from "@/components/ui/Sheet";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useAuthedQuery } from "@/hooks/useAuthedQuery";
 import { useNow } from "@/hooks/useNow";
+import { newKey } from "@/lib/errors";
 import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
 import { useSubmit } from "@/hooks/useSubmit";
 import { formatInr } from "@/lib/format";
@@ -27,6 +30,7 @@ import { useUi } from "@/stores/ui";
 export function LobbyScreen({ code, state }: { code: string; state: SessionState }) {
   const { session, crew, players, templates, isHost, meId } = state;
   const convex = useConvex();
+  const router = useRouter();
   const rememberMember = useUi((s) => s.rememberMember);
   const presence = useAuthedQuery(api.presence.list, { sessionId: session._id });
   const now = useNow();
@@ -46,6 +50,7 @@ export function LobbyScreen({ code, state }: { code: string; state: SessionState
 
   const [seatsOpen, setSeatsOpen] = useState(false);
   const [startOpen, setStartOpen] = useState(false);
+  const [endAsk, setEndAsk] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -123,6 +128,16 @@ export function LobbyScreen({ code, state }: { code: string; state: SessionState
             Games
           </SectionTitle>
           <GamesCard code={code} crewId={crew._id} templates={templates} selectedId={activeTemplate?._id ?? null} onSelect={setSelectedTemplate} />
+          <div className="mt-5 flex justify-center gap-2">
+            {session.gamesStarted > 0 && (
+              <Link href={`/s/${code}/report`} className="press grid h-11 place-items-center rounded-xl border border-line px-4 text-[13px] font-bold text-gold-ink">
+                Live report
+              </Link>
+            )}
+            <button onClick={() => setEndAsk(true)} className="press h-11 rounded-xl border border-down px-4 text-[13px] font-bold text-down">
+              End session
+            </button>
+          </div>
         </>
       ) : (
         <>
@@ -176,6 +191,24 @@ export function LobbyScreen({ code, state }: { code: string; state: SessionState
         </div>
       </div>
 
+      <Dialog
+        open={endAsk}
+        eyebrow="END SESSION"
+        eyebrowColor="var(--down)"
+        title="End the session?"
+        body="Wallets freeze and everyone's result is saved to the crew's stats. The report and settle-up become final, and nobody can join after this."
+        noLabel="Keep playing"
+        yesLabel="End & see report"
+        onNo={() => setEndAsk(false)}
+        onYes={() =>
+          run(async () => {
+            await convex.mutation(api.sessions.end, { sessionId: session._id, idempotencyKey: newKey() });
+            setEndAsk(false);
+            router.push(`/s/${code}/report`);
+          })
+        }
+        pending={pending}
+      />
       <WalletSheet open={walletOpen} onClose={() => setWalletOpen(false)} state={state} />
       {isHost && <SeatsSheet open={seatsOpen} onClose={() => setSeatsOpen(false)} state={state} />}
       {isHost && activeTemplate && <StartGameSheet open={startOpen} onClose={() => setStartOpen(false)} state={state} template={activeTemplate} />}

@@ -18,6 +18,9 @@ type UiState = {
   /** sessionId → the last finished game this phone has already seen the result of. */
   ackedGame: Record<string, string>;
   ackGame: (sessionId: string, gameId: string) => void;
+  /** Settle-up rows ticked off as paid, keyed "sessionId:from>to". Local to this phone. */
+  paid: Record<string, true>;
+  togglePaid: (key: string) => void;
   setSound: (v: boolean) => void;
   setHaptics: (v: boolean) => void;
   setAnimations: (v: Motion) => void;
@@ -69,6 +72,14 @@ export const useUi = create<UiState>()(
       lastMember: {},
       hintSeen: false,
       setHintSeen: (hintSeen) => set({ hintSeen }),
+      paid: {},
+      togglePaid: (key) =>
+        set((s) => {
+          const paid = { ...s.paid };
+          if (paid[key]) delete paid[key];
+          else paid[key] = true;
+          return { paid };
+        }),
       ackedGame: {},
       ackGame: (sessionId, gameId) => set((s) => ({ ackedGame: { ...s.ackedGame, [sessionId]: gameId } })),
       setSound: (sound) => set({ sound }),
@@ -100,6 +111,7 @@ export const useUi = create<UiState>()(
         lastMember: s.lastMember,
         hintSeen: s.hintSeen,
         ackedGame: s.ackedGame,
+        paid: s.paid,
       }),
     },
   ),
