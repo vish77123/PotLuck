@@ -24,6 +24,7 @@ import type * as loans from "../loans.js";
 import type * as presence from "../presence.js";
 import type * as report from "../report.js";
 import type * as sessions from "../sessions.js";
+import type * as stats from "../stats.js";
 import type * as wallet from "../wallet.js";
 
 import type {
@@ -49,6 +50,7 @@ declare const fullApi: ApiFromModules<{
   presence: typeof presence;
   report: typeof report;
   sessions: typeof sessions;
+  stats: typeof stats;
   wallet: typeof wallet;
 }>;
 
