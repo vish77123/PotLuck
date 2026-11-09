@@ -73,7 +73,9 @@ test("three phones: create, join, play a round, pay out, report", async ({ brows
   await host.getByRole("button", { name: "End session" }).click();
   await host.getByRole("button", { name: "End & see report" }).click();
   await host.waitForURL(/\/report$/);
-  await expect(host.getByText("Settle up")).toBeVisible();
-  await expect(host.getByText(/pays/).first()).toBeVisible();
-  await expect(host.getByText("2 transfers")).toBeVisible();
+  // The report also renders hidden print and image copies, so look inside the visible page only.
+  const report = host.getByRole("main");
+  await expect(report.getByText("Settle up")).toBeVisible();
+  await expect(report.getByText(/pays/).first()).toBeVisible();
+  await expect(report.getByText("2 transfers")).toBeVisible();
 });
