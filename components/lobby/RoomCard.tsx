@@ -38,6 +38,9 @@ export function RoomCard({ code }: { code: string }) {
           <div className="font-display mt-1 whitespace-nowrap text-[clamp(30px,9.6vw,40px)] font-bold leading-[1.1] tracking-[.04em]" aria-label={`Room code ${code.split("").join(" ")}`}>
             {formatCode(code)}
           </div>
+          <a href={`/s/${code}/display`} target="_blank" rel="noreferrer" className="mt-2 block text-[11.5px] font-bold text-on-felt2 underline underline-offset-2">
+            Open table display (TV / laptop)
+          </a>
           <div className="mt-3 flex gap-1.5">
             <button onClick={share} className="gold-btn press h-11 whitespace-nowrap rounded-xl px-3 text-[13px]">
               Share invite

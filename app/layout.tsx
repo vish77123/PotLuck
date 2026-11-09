@@ -12,6 +12,9 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
+  applicationName: "PotLuck",
+  appleWebApp: { capable: true, title: "PotLuck", statusBarStyle: "black-translucent" },
+  icons: { icon: "/icon-192.png", apple: "/apple-touch-icon.png" },
   title: "PotLuck",
   description: "A live cash pool for physical card games. The cards stay on the table — the money lives on everyone's phone.",
 };

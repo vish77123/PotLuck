@@ -10,6 +10,7 @@
 
 import type * as auth from "../auth.js";
 import type * as crews from "../crews.js";
+import type * as display from "../display.js";
 import type * as games from "../games.js";
 import type * as host from "../host.js";
 import type * as http from "../http.js";
@@ -36,6 +37,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   crews: typeof crews;
+  display: typeof display;
   games: typeof games;
   host: typeof host;
   http: typeof http;

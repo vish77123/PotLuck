@@ -1,5 +1,6 @@
 import { Money } from "@/components/money/Money";
 import { formatInr } from "@/lib/format";
+import { useTween } from "@/hooks/useTween";
 import { pile, type Theme } from "@/lib/wallet";
 
 // Where the notes lie in the 160×92 pile box (x, y, rotation), from the design.
@@ -15,6 +16,7 @@ const NOTE_SPOTS: [number, number, number][] = [
 /** The pot: a pile of notes (or columns of chips) and the amount underneath. */
 export function PoolPile({ pool, theme, subtitle, hot }: { pool: number; theme: Theme; subtitle: string; hot: boolean }) {
   const chips = theme === "chips";
+  const shown = useTween(pool, 300);
   const items = pile(pool, theme, chips ? 12 : 6);
   const cols = Math.min(3, items.length);
   const chipLeft = (160 - (cols * 42 - 2)) / 2;
@@ -23,7 +25,8 @@ export function PoolPile({ pool, theme, subtitle, hot }: { pool: number; theme: 
       <div
         className="absolute left-1/2 top-[28%] h-[92px] w-[160px]"
         aria-hidden
-        style={{ transition: "transform 180ms", transform: `translateX(-50%) scale(${hot ? 1.06 : 1})` }}
+        key={pool}
+        style={{ transition: "transform 180ms", transform: `translateX(-50%) scale(${hot ? 1.06 : 1})`, animation: "pl-pulse-scale 180ms ease-out" }}
       >
         {items.map((v, i) => {
           if (chips) {
@@ -51,7 +54,7 @@ export function PoolPile({ pool, theme, subtitle, hot }: { pool: number; theme: 
       <div className="absolute inset-x-0 top-[53.5%] text-center text-on-felt">
         <div className="text-[10.5px] font-extrabold tracking-[.24em] text-on-felt2">POOL</div>
         <div className="amount text-[46px] leading-[1.05]" style={{ textShadow: "0 2px 12px rgba(0,0,0,.45)" }}>
-          {formatInr(pool)}
+          {formatInr(shown)}
         </div>
         <div className="text-xs font-semibold text-on-felt2">{subtitle}</div>
       </div>

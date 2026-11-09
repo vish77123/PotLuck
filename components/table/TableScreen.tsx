@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Money } from "@/components/money/Money";
 import type { SessionState } from "@/components/lobby/types";
 import { BetTray, type Quick } from "@/components/table/BetTray";
+import { FlightLayer, type Flight } from "@/components/table/FlightLayer";
 import { EndGameScreen } from "@/components/table/EndGameScreen";
 import { HostPanel } from "@/components/table/HostPanel";
 import { FeedDrawer } from "@/components/table/FeedDrawer";
@@ -21,6 +22,8 @@ import { useEntryToasts } from "@/hooks/useEntryToasts";
 import { useNow } from "@/hooks/useNow";
 import { ONLINE_WINDOW_MS, usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
 import { useSubmit } from "@/hooks/useSubmit";
+import { useWakeLock } from "@/hooks/useWakeLock";
+import { haptic, sound } from "@/lib/feedback";
 import { avatarColor, initials } from "@/lib/avatar";
 import { betProblem, suggest } from "@/lib/bets";
 import { newKey } from "@/lib/errors";
@@ -47,6 +50,7 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
   const nameOf = (id?: string) => players.find((p) => p._id === id)?.name ?? "Someone";
 
   usePresenceHeartbeat(session._id);
+  useWakeLock(true);
   useEntryToasts(state);
   const now = useNow(1000);
   const { reconnecting, retries } = useConnection();
@@ -110,6 +114,36 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
     };
   });
 
+  // New bets fly seat → pool (and back on undo); my own seat is the bottom-centre row.
+  const [flights, setFlights] = useState<Flight[]>([]);
+  const lastFlightSeq = useRef<number | null>(null);
+  useEffect(() => {
+    const newest = recentEntries[0]?.seq ?? 0;
+    if (lastFlightSeq.current === null) {
+      lastFlightSeq.current = newest;
+      return;
+    }
+    const fresh = recentEntries.filter((e) => e.seq > (lastFlightSeq.current ?? 0) && e.gameId === game._id && (e.type === "BET" || e.type === "REVERSAL")).reverse();
+    lastFlightSeq.current = Math.max(lastFlightSeq.current, newest);
+    const spotOf = (id?: string) => {
+      if (id === meId) return { x: 50, y: 97 };
+      const i = others.findIndex((o) => o.sessionPlayerId === id);
+      return i >= 0 ? { x: spots[i].x, y: spots[i].y } : { x: 50, y: 5 };
+    };
+    const pool = { x: 50, y: 40 };
+    const made: Flight[] = [];
+    for (const e of fresh) {
+      if (e.type === "BET") {
+        if (e.createdByPlayerId !== meId) sound(theme === "chips" ? "clack" : "thup");
+        made.push({ id: e._id, from: spotOf(e.fromPlayerId), to: pool, value: e.amount >= 500 ? 500 : e.amount >= 100 ? 100 : e.amount >= 50 ? 50 : 10, chips: theme === "chips" });
+      } else if (e.reversesType === "BET") {
+        haptic("undo");
+        made.push({ id: e._id, from: pool, to: spotOf(e.toPlayerId), value: 50, chips: theme === "chips" });
+      }
+    }
+    if (made.length) setFlights((f) => [...f, ...made].slice(-8));
+  }, [recentEntries]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // The host's phone has gone quiet for 2 minutes: bets pause until someone claims host.
   const hostSeen = session.hostPlayerId ? seen.get(session.hostPlayerId) : undefined;
   const hostGone = !isHost && presence !== undefined && (hostSeen === undefined || now - hostSeen > 120_000);
@@ -129,6 +163,14 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
     });
 
   const myTurn = turnBased && game.currentTurnPlayerId === meId;
+  const wasMyTurn = useRef(false);
+  useEffect(() => {
+    if (myTurn && !wasMyTurn.current) {
+      haptic("turn");
+      sound("bell");
+    }
+    wasMyTurn.current = myTurn;
+  }, [myTurn]);
   const canAct = !!meP && meP.status === "playing" && (turnBased ? myTurn : true) && !reconnecting && !hostGone && me.status === "active";
   const myTeam = teamOf(meP?.teamNo);
   const turnName = nameOf(game.currentTurnPlayerId);
@@ -209,6 +251,8 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
         betKey.current = null;
         setConfirmBet(false);
         setRequested(null);
+        haptic("place");
+        sound(theme === "chips" ? "clack" : "thup");
       } catch (err) {
         betKey.current = null;
         setConfirmBet(false);
@@ -333,6 +377,7 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
           </div>
 
           <div ref={poolRef} className="pointer-events-none absolute left-1/2 top-[22%] h-[150px] w-[170px] -translate-x-1/2" aria-hidden />
+          <FlightLayer flights={flights} onDone={(id) => setFlights((f) => f.filter((x) => x.id !== id))} />
           <PoolPile pool={game.poolAmount} theme={theme} subtitle={`Round ${game.gameNo} · ${playing.length} playing`} hot={hot} />
 
           {seatViews.map((s, i) => (
@@ -418,7 +463,10 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
           tray={canAct ? "gold" : "plain"}
           onAdd={(d) => {
             setRequested(null);
-            composer.add(d);
+            if (composer.add(d)) {
+              haptic("tap");
+              sound(theme === "chips" ? "clack" : "flick");
+            }
           }}
           onRemoveTop={composer.removeTop}
           onClear={() => {

@@ -260,3 +260,15 @@ html[data-motion="off"] *::after {
     margin: 12mm;
   }
 }
+
+@keyframes pl-pulse-scale {
+  0% {
+    scale: 1;
+  }
+  50% {
+    scale: 1.08;
+  }
+  100% {
+    scale: 1;
+  }
+}

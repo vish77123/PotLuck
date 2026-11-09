@@ -49,12 +49,23 @@ function ThemeSync() {
   return null;
 }
 
+/** Registers the service worker in production builds only, so dev hot reload isn't cached. */
+function ServiceWorker() {
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+  }, []);
+  return null;
+}
+
 export function Providers({ children }: { children: React.ReactNode }) {
   const [client] = useState(() => new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL as string));
   return (
     <ConvexAuthProvider client={client}>
       <AutoSignIn />
       <ThemeSync />
+      <ServiceWorker />
       {children}
       <SettingsSheet />
       <Toaster />

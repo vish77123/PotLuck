@@ -117,7 +117,7 @@ export function HomeScreen() {
               <SectionTitle>My crews</SectionTitle>
               <div className="no-scrollbar mt-2.5 flex gap-3 overflow-x-auto px-4">
                 {crews.map((c) => (
-                  <div key={c._id} className="box-border w-[226px] flex-none rounded-[20px] border border-line bg-surface px-4 py-3.5">
+                  <Link key={c._id} href={`/crew/${c._id}`} className="box-border block w-[226px] flex-none rounded-[20px] border border-line bg-surface px-4 py-3.5">
                     <div className="font-display text-[19px] font-semibold">{c.name}</div>
                     <div className="mt-2.5 flex pl-2">
                       {c.memberNames.slice(0, 5).map((n) => (
@@ -129,7 +129,7 @@ export function HomeScreen() {
                     <div className="mt-2.5 text-xs font-semibold text-ink3">
                       {c.memberCount} {c.memberCount === 1 ? "player" : "players"} · {c.sessionCount} {c.sessionCount === 1 ? "session" : "sessions"}
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </>

@@ -15,6 +15,7 @@ import { newKey } from "@/lib/errors";
 import { clock } from "@/lib/feed";
 import { formatInr } from "@/lib/format";
 import { teamOf } from "@/lib/seats";
+import { haptic, sound } from "@/lib/feedback";
 import { useUi } from "@/stores/ui";
 
 type Game = NonNullable<SessionState["latestGame"]>;
@@ -59,6 +60,11 @@ export function ResultScreen({ code, state, game }: { code: string; state: Sessi
   }, [left]);
 
   const iWon = r.winners.includes(state.meId);
+  useEffect(() => {
+    if (!r.ready) return;
+    sound("win");
+    if (iWon) haptic("win");
+  }, [r.ready]); // eslint-disable-line react-hooks/exhaustive-deps
   const shown = useCountUp(r.team ? (r.winners.length ? Math.floor(r.total / r.winners.length) : 0) : r.total, 800);
   const dismiss = () => ack(state.session._id, game._id);
   const reopen = () =>
