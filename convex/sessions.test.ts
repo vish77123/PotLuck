@@ -200,3 +200,29 @@ describe("lobby edits", () => {
     );
   });
 });
+
+describe("rename", () => {
+  test("a player renames themselves in the lobby; names stay unique", async () => {
+    const t = setup();
+    const s = await table(t, ["Arjun", "Priya"]);
+    await s.seats.Priya.as.mutation(api.sessions.renameMe, { sessionId: s.sessionId, name: "  Priyanka " });
+    const state = await s.host.as.query(api.sessions.state, { sessionId: s.sessionId });
+    expect(state.players.map((p) => p.name)).toEqual(["Arjun", "Priyanka"]);
+    await expectError(
+      s.seats.Priya.as.mutation(api.sessions.renameMe, { sessionId: s.sessionId, name: "arjun" }),
+      "NAME_TAKEN",
+    );
+    // Case-only change of your own name is fine.
+    await s.seats.Priya.as.mutation(api.sessions.renameMe, { sessionId: s.sessionId, name: "PRIYANKA" });
+  });
+
+  test("not once a game has started", async () => {
+    const t = setup();
+    const s = await table(t, ["Arjun", "Priya"]);
+    await startGame(t, s, "Teen Patti", ["Arjun", "Priya"]);
+    await expectError(
+      s.seats.Priya.as.mutation(api.sessions.renameMe, { sessionId: s.sessionId, name: "Pri" }),
+      "INVALID_STATE",
+    );
+  });
+});

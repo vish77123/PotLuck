@@ -4,22 +4,8 @@ import { mutation, query, type MutationCtx } from "./_generated/server";
 import { grantCrewAccess, requireCrewAccess, requireUser } from "./lib/access";
 import { fail } from "./lib/errors";
 import { assertAmount, cleanName, normalizeName } from "./lib/validators";
+import { PRESET_TEMPLATES } from "../lib/presets";
 import { templateFields } from "./schema";
-
-export const PRESET_TEMPLATES = [
-  {
-    name: "Teen Patti",
-    boot: 10,
-    minBet: 10,
-    maxBet: 1000,
-    blindSeenMultiplier: 2,
-    turnMode: "turn_based",
-    teamMode: "solo",
-    confirmAbove: 200,
-  },
-  { name: "Poker", boot: 0, minBet: 10, turnMode: "turn_based", teamMode: "solo", confirmAbove: 500 },
-  { name: "Sequence", boot: 50, minBet: 10, turnMode: "free_form", teamMode: "team", confirmAbove: 500 },
-] as const;
 
 export async function insertCrew(ctx: MutationCtx, userId: Id<"users">, rawName: string) {
   const name = cleanName(rawName, "Crew name");
@@ -83,8 +69,41 @@ export const mine = query({
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .order("desc")
       .take(20);
-    const crews = await Promise.all(access.map((a) => ctx.db.get(a.crewId)));
-    return crews.filter((c) => c !== null);
+    const rows = await Promise.all(
+      access.map(async (a) => {
+        const crew = await ctx.db.get(a.crewId);
+        if (!crew) return null;
+        const members = await ctx.db
+          .query("crewMembers")
+          .withIndex("by_crew", (q) => q.eq("crewId", crew._id))
+          .take(50);
+        const sessions = await ctx.db
+          .query("sessions")
+          .withIndex("by_crew", (q) => q.eq("crewId", crew._id))
+          .take(100);
+        return {
+          _id: crew._id,
+          name: crew.name,
+          memberNames: members.map((m) => m.name),
+          memberCount: members.length,
+          sessionCount: sessions.length,
+        };
+      }),
+    );
+    return rows.filter((r) => r !== null);
+  },
+});
+
+/** Names to pick from when hosting a table for a crew you already belong to. */
+export const members = query({
+  args: { crewId: v.id("crews") },
+  handler: async (ctx, { crewId }) => {
+    await requireCrewAccess(ctx, crewId);
+    const members = await ctx.db
+      .query("crewMembers")
+      .withIndex("by_crew", (q) => q.eq("crewId", crewId))
+      .take(100);
+    return members.map((m) => ({ _id: m._id, name: m.name })).sort((a, b) => a.name.localeCompare(b.name));
   },
 });
 

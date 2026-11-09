@@ -7,6 +7,7 @@ import {
   getPlayerInSession,
   grantCrewAccess,
   requireCrewAccess,
+  requireActivePlayer,
   requireHost,
   requirePlayer,
   requireUser,
@@ -15,7 +16,7 @@ import { fail } from "./lib/errors";
 import { activeGameOf, participantsOf } from "./lib/game";
 import { applyEntry, findReversal, reverseEntry, withIdempotency } from "./lib/ledger";
 import { computeNets } from "./lib/nets";
-import { assertAmount, cleanName } from "./lib/validators";
+import { assertAmount, cleanName, normalizeName } from "./lib/validators";
 import { moneyTheme, walletMode } from "./schema";
 
 // No 0/O or 1/I so codes read cleanly off a phone across the table.
@@ -200,6 +201,7 @@ export const joinInfo = query({
       sessionId: session._id,
       code: session.code,
       status: session.status,
+      crewId: crew._id,
       crewName: crew.name,
       sessionName: session.name ?? null,
       hostName: host?.name ?? null,
@@ -386,6 +388,28 @@ export const setPlayerBuyIn = mutation({
       await rebuy(ctx, session, target._id, args.amount, player._id);
       return null;
     });
+  },
+});
+
+/** "Change my name" in the lobby. Renames the crew member, and this session's seat. Past reports keep the old name. */
+export const renameMe = mutation({
+  args: { sessionId: v.id("sessions"), name: v.string() },
+  handler: async (ctx, { sessionId, name: rawName }) => {
+    const { session, player } = await requireActivePlayer(ctx, sessionId);
+    if (session.status !== "lobby") fail("INVALID_STATE", "You can change your name before the first game starts.");
+    const name = cleanName(rawName);
+    const nameNormalized = normalizeName(name);
+    const member = (await ctx.db.get(player.crewMemberId))!;
+    if (member.nameNormalized !== nameNormalized) {
+      const clash = await ctx.db
+        .query("crewMembers")
+        .withIndex("by_crew_name", (q) => q.eq("crewId", session.crewId).eq("nameNormalized", nameNormalized))
+        .unique();
+      if (clash) fail("NAME_TAKEN", `${clash.name} is already in this crew.`);
+    }
+    await ctx.db.patch(member._id, { name, nameNormalized });
+    await ctx.db.patch(player._id, { name });
+    return null;
   },
 });
 
