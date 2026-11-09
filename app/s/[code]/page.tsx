@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { LobbyScreen } from "@/components/lobby/LobbyScreen";
+import { TableScreen } from "@/components/table/TableScreen";
 import { BackButton } from "@/components/ui/controls";
 import { api } from "@/convex/_generated/api";
 import { useAuthedQuery } from "@/hooks/useAuthedQuery";
@@ -62,13 +63,7 @@ export default function SessionPage() {
       </Shell>
     );
   }
-  if (state.session.status === "active") {
-    return (
-      <Shell>
-        <h1 className="font-display mt-16 text-[34px] font-semibold leading-[1.1]">A game is in progress</h1>
-        <p className="mt-2 text-sm text-ink2">The game table arrives in the next milestone.</p>
-      </Shell>
-    );
-  }
+  // A live game puts everyone at the table; between games the lobby doubles as the waiting room.
+  if (state.latestGame?.status === "active") return <TableScreen state={state} game={state.latestGame} />;
   return <LobbyScreen code={code} state={state} />;
 }

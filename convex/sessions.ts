@@ -506,6 +506,13 @@ export const state = query({
       .order("desc")
       .first();
     const participants = latestGame ? await participantsOf(ctx, latestGame._id) : [];
+    const events = latestGame
+      ? await ctx.db
+          .query("gameEvents")
+          .withIndex("by_game", (q) => q.eq("gameId", latestGame._id))
+          .order("desc")
+          .take(10)
+      : [];
     const recentEntries = await ctx.db
       .query("ledgerEntries")
       .withIndex("by_session_seq", (q) => q.eq("sessionId", sessionId))
@@ -546,7 +553,7 @@ export const state = query({
         rebindPending: isHost && !!p.pendingRebindUserId,
       })),
       templates,
-      latestGame: latestGame ? { ...latestGame, participants } : null,
+      latestGame: latestGame ? { ...latestGame, participants, events } : null,
       recentEntries,
       myLoans: loans,
     };
@@ -612,5 +619,20 @@ export const mine = query({
       }),
     );
     return rows.filter((r) => r !== null);
+  },
+});
+
+/** Pack/unpack events for one game, newest first. Merged into the feed on the client. */
+export const gameEvents = query({
+  args: { sessionId: v.id("sessions"), gameId: v.id("games") },
+  handler: async (ctx, { sessionId, gameId }) => {
+    await requirePlayer(ctx, sessionId);
+    const game = await ctx.db.get(gameId);
+    if (!game || game.sessionId !== sessionId) fail("NOT_FOUND", "Game not found.");
+    return await ctx.db
+      .query("gameEvents")
+      .withIndex("by_game", (q) => q.eq("gameId", gameId))
+      .order("desc")
+      .take(100);
   },
 });

@@ -12,6 +12,9 @@ type UiState = {
   appearance: Appearance;
   /** crewId → crew member this phone last played as, so Join can preselect "you". */
   lastMember: Record<string, string>;
+  /** The first-bet walkthrough has been dismissed on this phone. */
+  hintSeen: boolean;
+  setHintSeen: (v: boolean) => void;
   setSound: (v: boolean) => void;
   setHaptics: (v: boolean) => void;
   setAnimations: (v: Motion) => void;
@@ -19,6 +22,8 @@ type UiState = {
   rememberMember: (crewId: string, memberId: string) => void;
 
   // UI-only, never persisted.
+  feedOpen: boolean;
+  setFeedOpen: (v: boolean) => void;
   settingsOpen: boolean;
   setSettingsOpen: (v: boolean) => void;
   toasts: Toast[];
@@ -59,12 +64,16 @@ export const useUi = create<UiState>()(
       animations: "full",
       appearance: "night",
       lastMember: {},
+      hintSeen: false,
+      setHintSeen: (hintSeen) => set({ hintSeen }),
       setSound: (sound) => set({ sound }),
       setHaptics: (haptics) => set({ haptics }),
       setAnimations: (animations) => set({ animations }),
       setAppearance: (appearance) => set({ appearance }),
       rememberMember: (crewId, memberId) => set((s) => ({ lastMember: { ...s.lastMember, [crewId]: memberId } })),
 
+      feedOpen: false,
+      setFeedOpen: (feedOpen) => set({ feedOpen }),
       settingsOpen: false,
       setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
       toasts: [],
@@ -84,6 +93,7 @@ export const useUi = create<UiState>()(
         animations: s.animations,
         appearance: s.appearance,
         lastMember: s.lastMember,
+        hintSeen: s.hintSeen,
       }),
     },
   ),

@@ -199,3 +199,13 @@ html[data-motion="off"] *::after {
   animation-iteration-count: 1 !important;
   transition-duration: 0.001ms !important;
 }
+
+@keyframes pl-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px #f1d590, 0 0 14px 4px rgba(241, 213, 144, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 3px #f1d590, 0 0 30px 10px rgba(241, 213, 144, 0.6);
+  }
+}

@@ -174,6 +174,14 @@ export const pack = mutation({
       fail("NOT_YOUR_TURN", "You can pack on your turn.");
     }
     await ctx.db.patch(me._id, { status: "packed" });
+    await ctx.db.insert("gameEvents", {
+      sessionId: game.sessionId,
+      gameId,
+      kind: "pack",
+      playerId: player._id,
+      byPlayerId: player._id,
+      createdAt: Date.now(),
+    });
     if (game.currentTurnPlayerId === player._id) await advanceTurn(ctx, game, player._id);
     return null;
   },
@@ -211,11 +219,20 @@ export const unpack = mutation({
   args: { gameId: v.id("games"), playerId: v.id("sessionPlayers") },
   handler: async (ctx, { gameId, playerId }) => {
     const game = await getGameInSession(ctx, gameId);
-    await requireHost(ctx, game.sessionId);
+    const { player: host } = await requireHost(ctx, game.sessionId);
     requireActiveGame(game);
     const target = await participantOf(ctx, gameId, playerId);
     if (!target) fail("NOT_FOUND", "That player isn't in this game.");
+    if (target.status === "playing") return null;
     await ctx.db.patch(target._id, { status: "playing" });
+    await ctx.db.insert("gameEvents", {
+      sessionId: game.sessionId,
+      gameId,
+      kind: "unpack",
+      playerId: playerId,
+      byPlayerId: host._id,
+      createdAt: Date.now(),
+    });
     if (game.templateSnapshot.turnMode === "turn_based" && !game.currentTurnPlayerId) {
       await ctx.db.patch(gameId, { currentTurnPlayerId: playerId, turnStartedAt: Date.now() });
     }

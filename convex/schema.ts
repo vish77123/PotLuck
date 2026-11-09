@@ -155,6 +155,16 @@ export default defineSchema({
     .index("by_game_player", ["gameId", "sessionPlayerId"])
     .index("by_session_player", ["sessionId", "sessionPlayerId"]),
 
+  // Non-money table events (pack / unpack) so the live feed can show them. The ledger stays money-only.
+  gameEvents: defineTable({
+    sessionId: v.id("sessions"),
+    gameId: v.id("games"),
+    kind: v.union(v.literal("pack"), v.literal("unpack")),
+    playerId: v.id("sessionPlayers"),
+    byPlayerId: v.id("sessionPlayers"),
+    createdAt: v.number(),
+  }).index("by_game", ["gameId", "createdAt"]),
+
   // Append-only. Never patched or deleted.
   ledgerEntries: defineTable({
     sessionId: v.id("sessions"),

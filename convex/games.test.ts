@@ -141,6 +141,21 @@ describe("betting", () => {
     await bet(s.seats.Priya, gameId, 10);
   });
 
+  test("pack and unpack are recorded as events outside the ledger", async () => {
+    const t = setup();
+    const s = await table(t, ["Arjun", "Priya", "Rahul"]);
+    const { gameId } = await startGame(t, s, "Teen Patti", ["Arjun", "Priya", "Rahul"]);
+    await bet(s.seats.Arjun, gameId, 10);
+    await s.seats.Priya.as.mutation(api.games.pack, { gameId });
+    await s.seats.Priya.as.mutation(api.games.pack, { gameId }); // double tap adds nothing
+    await s.host.as.mutation(api.games.unpack, { gameId, playerId: s.seats.Priya.playerId });
+    const events = await s.host.as.query(api.sessions.gameEvents, { sessionId: s.sessionId, gameId });
+    expect(events.map((e) => e.kind)).toEqual(["unpack", "pack"]);
+    const state = await s.host.as.query(api.sessions.state, { sessionId: s.sessionId });
+    expect(state.latestGame?.events).toHaveLength(2);
+    await checkInvariants(t, s.sessionId);
+  });
+
   test("free-form: anyone playing bets any time, no turn pointer", async () => {
     const t = setup();
     const s = await table(t, ["A", "B", "C", "D"]);

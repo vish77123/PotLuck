@@ -7,6 +7,7 @@ import { GamesCard } from "@/components/lobby/GamesCard";
 import { PlayerGrid } from "@/components/lobby/PlayerGrid";
 import { RoomCard } from "@/components/lobby/RoomCard";
 import { SeatsSheet } from "@/components/lobby/SeatsSheet";
+import { StartGameSheet } from "@/components/lobby/StartGameSheet";
 import { ThemeCards } from "@/components/lobby/ThemeCards";
 import type { SessionState } from "@/components/lobby/types";
 import { WalletCard } from "@/components/lobby/WalletCard";
@@ -42,6 +43,7 @@ export function LobbyScreen({ code, state }: { code: string; state: SessionState
   const activeTemplate = templates.find((t) => t._id === selectedTemplate) ?? templates[0] ?? null;
 
   const [seatsOpen, setSeatsOpen] = useState(false);
+  const [startOpen, setStartOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const { pending, run } = useSubmit();
@@ -138,24 +140,29 @@ export function LobbyScreen({ code, state }: { code: string; state: SessionState
         <div className="mx-auto max-w-[520px] px-4 pt-[18px]" style={{ paddingBottom: "max(30px, env(safe-area-inset-bottom))" }}>
           {isHost ? (
             <>
-              <GoldButton disabled>{activeTemplate ? `Start ${activeTemplate.name}` : "Add a game to start"}</GoldButton>
-              {activeTemplate && <div className="mt-2 text-center text-xs font-semibold text-ink3">Starting a game arrives with the game table.</div>}
+              <GoldButton disabled={!activeTemplate || seated.length < 2} onClick={() => setStartOpen(true)}>
+                {activeTemplate ? `Start ${activeTemplate.name}` : "Add a game to start"}
+              </GoldButton>
+              {activeTemplate && seated.length < 2 && <div className="mt-2 text-center text-xs font-semibold text-ink3">Waiting for at least one more player.</div>}
             </>
           ) : (
-            <SecondaryButton
-              className="w-full !h-[58px] !rounded-[18px] !text-[15px]"
-              onClick={() => {
-                setNewName(me?.name ?? "");
-                setRenameOpen(true);
-              }}
-            >
-              Change my name
-            </SecondaryButton>
+            session.status === "lobby" && (
+              <SecondaryButton
+                className="w-full !h-[58px] !rounded-[18px] !text-[15px]"
+                onClick={() => {
+                  setNewName(me?.name ?? "");
+                  setRenameOpen(true);
+                }}
+              >
+                Change my name
+              </SecondaryButton>
+            )
           )}
         </div>
       </div>
 
       {isHost && <SeatsSheet open={seatsOpen} onClose={() => setSeatsOpen(false)} state={state} />}
+      {isHost && activeTemplate && <StartGameSheet open={startOpen} onClose={() => setStartOpen(false)} state={state} template={activeTemplate} />}
 
       <Sheet open={renameOpen} onClose={() => setRenameOpen(false)} title="Change my name" subtitle="Updates your name in the whole crew.">
         <div className="mt-3.5">
