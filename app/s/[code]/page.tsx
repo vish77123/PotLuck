@@ -9,6 +9,7 @@ import { TableScreen } from "@/components/table/TableScreen";
 import type { SessionState } from "@/components/lobby/types";
 import { Dialog } from "@/components/ui/Dialog";
 import { useGameResult } from "@/hooks/useGameResult";
+import { useLoanToasts } from "@/hooks/useLoanToasts";
 import { useUi } from "@/stores/ui";
 import { BackButton } from "@/components/ui/controls";
 import { api } from "@/convex/_generated/api";
@@ -54,6 +55,7 @@ function AwayNote({ code, state, game }: { code: string; state: SessionState; ga
 /** Table while a game is live, winner celebration right after, lobby/waiting room otherwise. */
 function SessionRouter({ code, state }: { code: string; state: SessionState }) {
   const result = useGameResult(state);
+  useLoanToasts(state);
   if (state.latestGame?.status === "active") return <TableScreen state={state} game={state.latestGame} />;
   if (result.kind === "celebrate") return <ResultScreen code={code} state={state} game={result.game} />;
   return (

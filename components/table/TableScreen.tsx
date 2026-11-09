@@ -11,6 +11,7 @@ import { FeedDrawer } from "@/components/table/FeedDrawer";
 import { PoolPile } from "@/components/table/PoolPile";
 import { Seat, type SeatView } from "@/components/table/Seat";
 import { TopBar } from "@/components/table/TopBar";
+import { WalletSheet, type WalletView } from "@/components/wallet/WalletSheet";
 import { Dialog } from "@/components/ui/Dialog";
 import { api } from "@/convex/_generated/api";
 import { useAuthedQuery } from "@/hooks/useAuthedQuery";
@@ -66,6 +67,7 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
   const [confirmBet, setConfirmBet] = useState(false);
   const [confirmPack, setConfirmPack] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [wallet, setWallet] = useState<null | WalletView>(null);
   const [endOpen, setEndOpen] = useState(false);
   const [claimOpen, setClaimOpen] = useState(false);
   const [claimDismissed, setClaimDismissed] = useState(false);
@@ -139,9 +141,10 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
   const problem = betProblem(requested ?? composer.amount, template, me.balance);
   const shownAmount = composer.amount > 0 ? composer.amount : (requested ?? 0);
   const walletShort = requested !== null && requested > me.balance;
+  const incomingLoans = state.myLoans.filter((l) => l.lenderPlayerId === meId && l.status === "requested").length;
 
   let status = { label: turnBased ? `${turnName.toUpperCase()}’S TURN` : "FREE-FORM · BET ANY TIME", color: "var(--ink3)" };
-  let readout: { label: string; amount: string; sub: string; subTone: "normal" | "warn" | "bad"; amountBad: boolean; text?: boolean };
+  let readout: { label: string; amount: string; sub: string; subTone: "normal" | "warn" | "bad"; amountBad: boolean; text?: boolean; action?: { label: string; run: () => void } };
   if (hostGone) {
     status = { label: "PAUSED", color: "var(--warn)" };
     readout = { label: "PAUSED", amount: "No host", sub: "Claim host to keep playing", subTone: "warn", amountBad: false, text: true };
@@ -182,6 +185,7 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
             : "Pick notes or a quick bet",
       subTone: problem ? "bad" : over ? "warn" : "normal",
       amountBad: !!problem,
+      action: walletShort || (problem && me.balance < template.minBet) ? { label: "Top up", run: () => setWallet("topup") } : undefined,
     };
   }
 
@@ -381,10 +385,18 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
             <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-[7px] bg-[#f6eedb] px-[7px] py-px text-[9.5px] font-extrabold tracking-[.1em] text-[#1d1608]">YOU</div>
           </div>
           <div className="w-[118px]">
-            <div className="inline-flex flex-col rounded-[14px] border px-3 py-1.5" style={{ background: "var(--plate)", borderColor: "var(--rail-pin)" }}>
+            <button
+              onClick={() => setWallet("main")}
+              aria-label={`My wallet, ${formatInr(me.balance)}${incomingLoans ? `, ${incomingLoans} loan request` : ""}`}
+              className="press relative inline-flex flex-col items-start rounded-[14px] border px-3 py-1.5 text-left"
+              style={{ background: "var(--plate)", borderColor: "var(--rail-pin)" }}
+            >
               <span className="text-[9.5px] font-extrabold tracking-[.14em] text-[#c2d5c4]">WALLET</span>
               <span className="amount text-[19px] leading-[1.1] text-[#e5c47c]">{formatInr(me.balance)}</span>
-            </div>
+              {incomingLoans > 0 && (
+                <span className="absolute -right-1.5 -top-1.5 grid h-[18px] min-w-[18px] place-items-center rounded-[9px] bg-gold px-[5px] text-[10.5px] font-extrabold text-on-gold">{incomingLoans}</span>
+              )}
+            </button>
           </div>
         </div>
       </div>
@@ -417,6 +429,7 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
           onPack={() => setConfirmPack(true)}
           onPlace={place}
           onHover={setHot}
+          onTopUp={me.status === "active" ? () => setWallet("topup") : undefined}
         />
       </div>
 
@@ -447,6 +460,7 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
         blindSeen={!!template.blindSeenMultiplier}
       />
 
+      <WalletSheet open={wallet !== null} onClose={() => setWallet(null)} state={state} initialView={wallet ?? "main"} />
       {isHost && <HostPanel open={panelOpen} onClose={() => setPanelOpen(false)} state={state} game={game} onEndGame={() => setEndOpen(true)} />}
       {isHost && endOpen && <EndGameScreen state={state} game={game} onClose={() => setEndOpen(false)} />}
 

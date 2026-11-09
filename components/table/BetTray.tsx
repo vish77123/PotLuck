@@ -18,7 +18,7 @@ type Props = {
   status: { label: string; color: string };
   limits: string;
   /** Label / amount / sub-line next to the stack. */
-  readout: { label: string; amount: string; sub: string; subTone: "normal" | "warn" | "bad"; amountBad: boolean; text?: boolean };
+  readout: { label: string; amount: string; sub: string; subTone: "normal" | "warn" | "bad"; amountBad: boolean; text?: boolean; action?: { label: string; run: () => void } };
   quick: Quick[];
   freeForm: boolean;
   poolRef: RefObject<HTMLDivElement | null>;
@@ -173,6 +173,14 @@ export function BetTray(p: Props) {
           </div>
           <div className="text-[11.5px] font-semibold leading-[1.3]" style={{ color: SUB_COLOR[p.readout.subTone] }}>
             {p.readout.sub}
+            {p.readout.action && (
+              <>
+                {" · "}
+                <button onClick={p.readout.action.run} className="font-extrabold text-gold-ink underline underline-offset-2">
+                  {p.readout.action.label}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

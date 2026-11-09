@@ -12,6 +12,7 @@ import { StartGameSheet } from "@/components/lobby/StartGameSheet";
 import { ThemeCards } from "@/components/lobby/ThemeCards";
 import type { SessionState } from "@/components/lobby/types";
 import { WalletCard } from "@/components/lobby/WalletCard";
+import { WalletSheet } from "@/components/wallet/WalletSheet";
 import { BackButton, GoldButton, SectionTitle, SecondaryButton, TextField } from "@/components/ui/controls";
 import { Sheet } from "@/components/ui/Sheet";
 import { api } from "@/convex/_generated/api";
@@ -45,6 +46,7 @@ export function LobbyScreen({ code, state }: { code: string; state: SessionState
 
   const [seatsOpen, setSeatsOpen] = useState(false);
   const [startOpen, setStartOpen] = useState(false);
+  const [walletOpen, setWalletOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const { pending, run } = useSubmit();
@@ -63,6 +65,16 @@ export function LobbyScreen({ code, state }: { code: string; state: SessionState
           <BackButton href="/" />
           <div className="font-display min-w-0 flex-1 truncate text-[22px] font-semibold">{session.name ?? crew.name}</div>
           {isHost && <div className="rounded-xl border border-line-gold px-2.5 py-1.5 text-[11.5px] font-extrabold tracking-[.1em] text-gold-ink">♛ HOST</div>}
+          <button
+            onClick={() => setWalletOpen(true)}
+            aria-label={`My wallet, ${formatInr(me?.balance ?? 0)}`}
+            className="press relative h-11 rounded-xl border border-line bg-surface px-3 text-[13px] font-extrabold tabular-nums"
+          >
+            {formatInr(me?.balance ?? 0)}
+            {state.myLoans.some((l) => l.lenderPlayerId === meId && l.status === "requested") && (
+              <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-gold" />
+            )}
+          </button>
         </div>
       </div>
 
@@ -164,6 +176,7 @@ export function LobbyScreen({ code, state }: { code: string; state: SessionState
         </div>
       </div>
 
+      <WalletSheet open={walletOpen} onClose={() => setWalletOpen(false)} state={state} />
       {isHost && <SeatsSheet open={seatsOpen} onClose={() => setSeatsOpen(false)} state={state} />}
       {isHost && activeTemplate && <StartGameSheet open={startOpen} onClose={() => setStartOpen(false)} state={state} template={activeTemplate} />}
 
