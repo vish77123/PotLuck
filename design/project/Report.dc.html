@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="position:relative;width:390px;height:2200px;overflow:hidden;background:var(--room);color:var(--ink);font-family:var(--sans)">
+<div style="padding:56px 16px 0;display:flex;align-items:center;gap:10px">
+<div style="width:44px;height:44px;border-radius:22px;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round"><path d="M15 5l-7 7 7 7"></path></svg></div>
+<div style="flex:1;font-size:13px;font-weight:700;color:var(--ink3);letter-spacing:.1em">SESSION REPORT</div>
+</div>
+<div style="padding:14px 20px 0"><div style="font-family:var(--display);font-size:32px;font-weight:600;line-height:1.1">Diwali Teen Patti</div><div style="font-size:13.5px;color:var(--ink2);margin-top:4px">Friday Night Crew · Sat 7 Nov · 20:02–23:14</div></div>
+<div style="margin:16px 16px 0;display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+<sc-for list="{{totals}}" as="t" hint-placeholder-count="3"><div style="padding:12px;border-radius:16px;background:var(--surface);border:1px solid var(--line)"><div style="font-size:10px;font-weight:800;letter-spacing:.12em;color:var(--ink3)">{{t.k}}</div><div style="font-family:var(--display);font-size:24px;font-weight:700;margin-top:4px;font-variant-numeric:lining-nums tabular-nums">{{t.v}}</div></div></sc-for>
+</div>
+<div style="padding:24px 20px 0;font-size:16px;font-weight:800">Net per player</div>
+<div style="margin:10px 16px 0;padding:8px 14px;border-radius:20px;background:var(--surface);border:1px solid var(--line)">
+<sc-for list="{{nets}}" as="n" hint-placeholder-count="6">
+<div style="display:grid;grid-template-columns:76px 1fr 1fr 76px;align-items:center;height:42px">
+<div style="font-size:14px;font-weight:700">{{n.name}}</div>
+<div style="display:flex;justify-content:flex-end;border-right:1px solid var(--line);height:22px;align-items:center"><div style="height:16px;border-radius:4px 0 0 4px;background:var(--down);width:{{n.neg}}px"></div></div>
+<div style="display:flex;height:22px;align-items:center"><div style="height:16px;border-radius:0 4px 4px 0;background:var(--up);width:{{n.pos}}px"></div></div>
+<div style="text-align:right;font-family:var(--display);font-size:17px;font-weight:700;color:{{n.c}};font-variant-numeric:lining-nums tabular-nums">{{n.v}}</div>
+</div>
+</sc-for>
+</div>
+<div style="margin:16px 16px 0;padding:8px;border-radius:26px;background:var(--rail);box-shadow:var(--sh1)">
+<div style="padding:16px 16px 10px;border-radius:20px;background:var(--felt-bg);box-shadow:inset 0 0 0 1.5px var(--rail-pin),inset 0 0 40px rgba(0,0,0,.4);color:var(--on-felt)">
+<div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-family:var(--display);font-size:22px;font-weight:600">Settle up</div><div style="font-size:11.5px;font-weight:700;color:var(--on-felt2)">5 transfers · fewest possible</div></div>
+<sc-for list="{{settle}}" as="s" hint-placeholder-count="5">
+<div style="display:flex;align-items:center;gap:8px;height:48px;border-top:1px solid rgba(246,238,219,.15);margin-top:6px">
+<div style="font-size:14.5px;font-weight:700;flex:1"><span>{{s.from}}</span><span style="color:var(--on-felt2);font-weight:600"> pays </span><span>{{s.to}}</span></div>
+<div style="font-family:var(--display);font-size:20px;font-weight:700;color:#f1d590;font-variant-numeric:lining-nums tabular-nums">{{s.a}}</div>
+<div style="width:22px;height:22px;border-radius:6px;border:1.5px solid rgba(246,238,219,.5)"></div>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="padding:24px 20px 0;font-size:16px;font-weight:800">Games · 14</div>
+<div style="margin:10px 16px 0;border-radius:20px;background:var(--surface);border:1px solid var(--line);overflow:hidden">
+<div style="padding:14px 16px;background:var(--surface2);border-bottom:1px solid var(--line)">
+<div style="display:flex;align-items:center;gap:10px"><div style="flex:1"><div style="font-size:14.5px;font-weight:800">#14 Teen Patti</div><div style="font-size:12px;color:var(--ink3);font-weight:600">Rahul won · 9 bets · 23:10</div></div><div style="font-family:var(--display);font-size:19px;font-weight:700;font-variant-numeric:lining-nums tabular-nums">₹1,240</div><div style="font-size:14px;color:var(--ink3)">▴</div></div>
+<div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+<sc-for list="{{g14}}" as="r" hint-placeholder-count="5"><div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--ink2);font-weight:600">{{r.n}}</span><span style="font-weight:800;font-variant-numeric:tabular-nums;color:{{r.c}}">{{r.v}}</span></div></sc-for>
+</div>
+</div>
+<sc-for list="{{games}}" as="g" hint-placeholder-count="4">
+<div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)"><div style="flex:1"><div style="font-size:14px;font-weight:700">{{g.t}}</div><div style="font-size:12px;color:var(--ink3);font-weight:600">{{g.d}}</div></div><div style="font-family:var(--display);font-size:17px;font-weight:700;font-variant-numeric:lining-nums tabular-nums">{{g.a}}</div><div style="font-size:14px;color:var(--ink3)">▾</div></div>
+</sc-for>
+</div>
+<div style="padding:24px 20px 0;font-size:16px;font-weight:800">Top-ups &amp; loans</div>
+<div style="margin:10px 16px 0;border-radius:20px;background:var(--surface);border:1px solid var(--line);padding:4px 16px">
+<sc-for list="{{money}}" as="m" hint-placeholder-count="4"><div style="display:flex;align-items:center;justify-content:space-between;height:44px;border-bottom:1px solid var(--line);font-size:13.5px"><span style="font-weight:600;color:var(--ink2)">{{m.t}}</span><span style="font-weight:800;font-variant-numeric:tabular-nums">{{m.a}}</span></div></sc-for>
+</div>
+<div style="padding:24px 20px 0;font-size:16px;font-weight:800">Undo log</div>
+<div style="margin:10px 16px 0;border-radius:20px;background:var(--surface);border:1px solid var(--line);padding:4px 16px">
+<sc-for list="{{undos}}" as="u" hint-placeholder-count="3"><div style="display:flex;align-items:center;gap:8px;height:46px;border-bottom:1px solid var(--line);font-size:13.5px"><span style="color:var(--warn);font-weight:800">↺</span><span style="flex:1;font-weight:600">{{u.t}}</span><span style="color:var(--ink3);font-size:12px;font-variant-numeric:tabular-nums">{{u.w}}</span></div></sc-for>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:0;padding:18px 16px 30px;background:linear-gradient(transparent,var(--bg) 30%);display:grid;grid-template-columns:1fr 1.25fr;gap:10px">
+<div style="height:56px;border-radius:18px;background:var(--surface2);border:1px solid var(--line);display:grid;place-items:center;font-weight:700;font-size:15px">Export PDF</div>
+<div style="height:56px;border-radius:18px;background:var(--gold-grad);box-shadow:var(--gold-sh);color:var(--on-gold);display:grid;place-items:center;font-weight:800;font-size:15px">Share image</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:2020}}">
+class Component extends DCLogic {
+  renderVals() {
+    const N = [['Rahul',1820],['Priya',640],['Meera',120],['Kabir',-410],['Arjun',-930],['Dev',-1240]];
+    const fmt = n => (n > 0 ? '+' : n < 0 ? '−' : '') + '₹' + Math.abs(n).toLocaleString('en-IN');
+    return {
+      totals: [{k:'GAMES',v:'14'},{k:'MOVED',v:'₹18,640'},{k:'BIGGEST POT',v:'₹2,380'}],
+      nets: N.map(([name,v]) => ({name, v: fmt(v), c: v >= 0 ? 'var(--up)' : 'var(--down)', pos: v > 0 ? Math.round(v / 1820 * 84) : 0, neg: v < 0 ? Math.round(-v / 1820 * 84) : 0})),
+      settle: [['Dev','Rahul',1240],['Arjun','Rahul',580],['Arjun','Priya',350],['Kabir','Priya',290],['Kabir','Meera',120]].map(([from,to,a]) => ({from,to,a:'₹'+a.toLocaleString('en-IN')})),
+      g14: [{n:'Rahul · 4 bets',v:'+₹1,010',c:'var(--up)'},{n:'Kabir · 2 bets',v:'−₹180',c:'var(--down)'},{n:'Priya · 2 bets',v:'−₹150',c:'var(--down)'},{n:'Meera · blind',v:'−₹70',c:'var(--down)'},{n:'Arjun · boot only',v:'−₹10',c:'var(--down)'}],
+      games: [{t:'#13 Teen Patti',d:'Priya won · 12 bets',a:'₹2,380'},{t:'#12 Teen Patti',d:'Meera won · 6 bets',a:'₹620'},{t:'#11 Poker',d:'Rahul won · 15 bets',a:'₹1,900'},{t:'#10 Teen Patti',d:'Arjun won · 7 bets',a:'₹880'}],
+      money: [{t:'Priya topped up · 21:05',a:'₹500'},{t:'Priya topped up · 21:28',a:'₹500'},{t:'Rahul borrowed from Priya · repaid',a:'₹500'},{t:'Kabir borrowed from Arjun · open',a:'₹300'}],
+      undos: [{t:'₹200 from Kabir · by Arjun',w:'21:41'},{t:'₹50 from Rahul · by Arjun',w:'22:08'},{t:'₹100 from Dev · by Arjun',w:'22:55'}],
+    };
+  }
+}
+</script>
+</body>
+</html>

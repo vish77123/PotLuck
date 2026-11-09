@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="position:relative;width:1280px;height:720px;overflow:hidden;background:var(--room);color:var(--ink);font-family:var(--sans)">
+<div style="position:absolute;left:40px;top:28px;right:420px;display:flex;align-items:center;justify-content:space-between">
+<div style="font-family:var(--display);font-size:30px;font-weight:700">Pot<span style="font-style:italic;color:var(--gold-ink)">Luck</span><span style="font-family:var(--sans);font-size:18px;font-weight:700;color:var(--ink2);margin-left:18px">Teen Patti · Round 3</span></div>
+<div style="display:flex;align-items:center;gap:10px;font-size:18px;font-weight:800;letter-spacing:.14em;color:var(--gold-ink)"><span style="width:10px;height:10px;border-radius:5px;background:var(--up)"></span>K7Q 2PX</div>
+</div>
+<div style="position:absolute;left:40px;top:92px;width:820px;height:600px">
+<div style="position:absolute;left:30px;top:40px;right:30px;bottom:40px;border-radius:50%;background:var(--rail);box-shadow:var(--sh2),inset 0 3px 0 rgba(255,255,255,.08)">
+<div style="position:absolute;inset:18px;border-radius:50%;background:var(--felt-bg);box-shadow:inset 0 0 0 2px var(--rail-pin),inset 0 0 100px rgba(0,0,0,.55)"></div>
+</div>
+<div style="position:absolute;left:0;right:0;top:170px;text-align:center;color:var(--on-felt)">
+<div style="font-size:18px;font-weight:800;letter-spacing:.3em;color:var(--on-felt2)">POOL</div>
+<div style="font-family:var(--display);font-size:128px;font-weight:700;line-height:1;font-variant-numeric:lining-nums tabular-nums;text-shadow:0 4px 30px rgba(0,0,0,.5)">₹1,240</div>
+<div style="display:inline-flex;align-items:center;gap:12px;margin-top:18px;padding:10px 22px;border-radius:30px;background:#f1d590;color:#1d1608;font-size:24px;font-weight:800"><span style="width:12px;height:12px;border-radius:6px;background:#1d1608"></span>Rahul’s turn · 0:12</div>
+</div>
+<sc-for list="{{seats}}" as="s" hint-placeholder-count="6">
+<div style="position:absolute;left:{{s.x}}px;top:{{s.y}}px;width:150px;margin-left:-75px;margin-top:-50px;display:flex;flex-direction:column;align-items:center;gap:6px;opacity:{{s.op}}">
+<div style="width:76px;height:76px;box-sizing:border-box;border-radius:38px;background:{{s.color}};border:3px solid {{s.ring}};box-shadow:{{s.glow}};display:grid;place-items:center;color:#f6eedb;font-size:24px;font-weight:800">{{s.ini}}</div>
+<div style="padding:5px 14px;border-radius:12px;background:var(--plate);text-align:center;line-height:1.2"><div style="font-size:20px;font-weight:800;color:#f6eedb">{{s.name}}</div><div style="font-size:17px;font-weight:700;color:#e5c47c;font-variant-numeric:tabular-nums">{{s.w}}</div></div>
+</div>
+</sc-for>
+</div>
+<div style="position:absolute;right:28px;top:28px;bottom:28px;width:360px;border-radius:28px;background:var(--surface);border:1px solid var(--line);padding:24px;box-sizing:border-box;display:flex;flex-direction:column">
+<div style="font-family:var(--display);font-size:30px;font-weight:600">Live feed</div>
+<div style="display:flex;flex-direction:column;margin-top:10px">
+<sc-for list="{{feed}}" as="f" hint-placeholder-count="7">
+<div style="display:flex;align-items:center;gap:12px;height:66px;border-bottom:1px solid var(--line);opacity:{{f.op}}">
+<div style="width:40px;height:40px;border-radius:20px;background:{{f.color}};display:grid;place-items:center;color:#f6eedb;font-size:14px;font-weight:800;flex:none">{{f.ini}}</div>
+<div style="flex:1;min-width:0;line-height:1.2"><div style="font-size:20px;font-weight:800;text-decoration:{{f.td}}">{{f.who}}</div><div style="font-size:15px;color:var(--ink3);font-weight:600">{{f.type}}</div></div>
+<div style="font-family:var(--display);font-size:28px;font-weight:700;font-variant-numeric:lining-nums tabular-nums;color:{{f.c}};text-decoration:{{f.td}}">{{f.amt}}</div>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:720}}">
+class Component extends DCLogic {
+  renderVals() {
+    const S = [['Arjun','AR','#9a6a2f','₹1,880',90,320],['Meera','ME','#2f8a74','₹2,310',190,110],['Kabir','KA','#6a4f96','₹1,450',410,60],['Rahul','RA','#3d6a9a','₹2,940',630,110,1],['Dev','DE','#5f6f3a','₹1,960',730,320,0,1],['Priya','PR','#9a4a5a','₹3,450',410,505]];
+    return {
+      seats: S.map(([name,ini,color,w,x,y,a,p]) => ({name,ini,color,w,x,y,op:p?.4:1,ring:a?'#f1d590':'rgba(246,238,219,.4)',glow:a?'0 0 0 4px #f1d590,0 0 40px 12px rgba(241,213,144,.5)':'0 4px 10px rgba(0,0,0,.4)'})),
+      feed: [
+        {who:'Rahul',ini:'RA',color:'#3d6a9a',type:'Seen bet',amt:'₹50'},
+        {who:'Kabir',ini:'KA',color:'#6a4f96',type:'Seen bet',amt:'₹50'},
+        {who:'Kabir',ini:'KA',color:'#6a4f96',type:'Undone by host',amt:'₹200',undone:1},
+        {who:'Meera',ini:'ME',color:'#2f8a74',type:'Blind bet',amt:'₹20'},
+        {who:'Dev',ini:'DE',color:'#5f6f3a',type:'Packed',amt:'—'},
+        {who:'Priya',ini:'PR',color:'#9a4a5a',type:'Seen bet',amt:'₹40'},
+        {who:'Arjun',ini:'AR',color:'#9a6a2f',type:'Seen bet',amt:'₹40'},
+      ].map(f => ({...f, op: f.undone ? .5 : 1, td: f.undone ? 'line-through' : 'none', c: 'var(--ink)'})),
+    };
+  }
+}
+</script>
+</body>
+</html>

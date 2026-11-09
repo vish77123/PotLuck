@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="position:relative;width:390px;min-height:844px;height:{{H}}px;overflow:hidden;background:var(--room);color:var(--ink);font-family:var(--sans)">
+<div style="padding:56px 16px 0;display:flex;align-items:center;gap:10px">
+<div style="width:44px;height:44px;border-radius:22px;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round"><path d="M15 5l-7 7 7 7"></path></svg></div>
+<div style="flex:1;font-family:var(--display);font-size:22px;font-weight:600">Friday Night Crew</div>
+<sc-if value="{{host}}" hint-placeholder-val="{{true}}"><div style="padding:6px 10px;border-radius:12px;border:1px solid var(--line-gold);color:var(--gold-ink);font-size:11.5px;font-weight:800;letter-spacing:.1em">♛ HOST</div></sc-if>
+</div>
+<div style="margin:16px 16px 0;padding:8px;border-radius:28px;background:var(--rail);box-shadow:var(--sh2)">
+<div style="padding:18px;border-radius:22px;background:var(--felt-bg);box-shadow:inset 0 0 0 1.5px var(--rail-pin),inset 0 0 40px rgba(0,0,0,.45);color:var(--on-felt);display:flex;gap:16px;align-items:center">
+<div style="flex:1;min-width:0">
+<div style="font-size:10.5px;font-weight:800;letter-spacing:.2em;color:var(--on-felt2)">ROOM CODE</div>
+<div style="font-family:var(--display);font-size:40px;font-weight:700;letter-spacing:.06em;line-height:1.1;margin-top:4px">K7Q 2PX</div>
+<div style="display:flex;gap:8px;margin-top:12px">
+<div style="height:40px;padding:0 14px;border-radius:12px;background:var(--gold-grad);box-shadow:var(--gold-sh);color:var(--on-gold);display:grid;place-items:center;font-weight:800;font-size:13.5px">Share invite</div>
+<div style="height:40px;padding:0 14px;border-radius:12px;background:rgba(0,0,0,.28);border:1px solid rgba(246,238,219,.3);display:grid;place-items:center;font-weight:700;font-size:13.5px">Copy</div>
+</div>
+</div>
+<div style="flex:none;padding:7px;border-radius:12px;background:#fbf6ea"><div style="display:grid;grid-template-columns:repeat(21,4.4px);grid-auto-rows:4.4px"><sc-for list="{{qr}}" as="q" hint-placeholder-count="0"><div style="background:{{q}}"></div></sc-for></div></div>
+</div>
+</div>
+<div style="padding:22px 20px 0;display:flex;align-items:center;justify-content:space-between"><div style="font-size:16px;font-weight:800">At the table · 5</div><div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--up)"><span style="width:8px;height:8px;border-radius:4px;background:var(--up);box-shadow:0 0 0 4px rgba(111,213,154,.2)"></span>Joining live</div></div>
+<div style="margin:10px 16px 0;padding:14px 10px;border-radius:20px;background:var(--surface);border:1px solid var(--line);display:grid;grid-template-columns:repeat(4,minmax(0,1fr));row-gap:14px">
+<sc-for list="{{players}}" as="p" hint-placeholder-count="6">
+<div style="display:flex;flex-direction:column;align-items:center;gap:6px;opacity:{{p.op}}">
+<div style="position:relative;width:52px;height:52px;box-sizing:border-box;border-radius:26px;background:{{p.color}};border:{{p.border}};display:grid;place-items:center;color:#f6eedb;font-weight:800;font-size:16px">{{p.ini}}<div style="position:absolute;bottom:-4px;right:-4px;width:20px;height:20px;border-radius:10px;background:var(--surface3);border:2px solid var(--surface);color:var(--ink2);font-size:10px;font-weight:800;display:grid;place-items:center">{{p.seat}}</div></div>
+<div style="font-size:12.5px;font-weight:700">{{p.name}}</div>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{host}}" hint-placeholder-val="{{true}}">
+<div style="padding:22px 20px 0;font-size:16px;font-weight:800">Wallets</div>
+<div style="margin:10px 16px 0;padding:14px;border-radius:20px;background:var(--surface);border:1px solid var(--line)">
+<div style="display:grid;grid-template-columns:1fr 1fr;padding:3px;border-radius:14px;background:var(--surface3)"><div style="height:42px;border-radius:11px;background:var(--surface);box-shadow:var(--sh1);display:grid;place-items:center;font-weight:800;font-size:14px">Equal for all</div><div style="height:42px;display:grid;place-items:center;font-weight:700;font-size:14px;color:var(--ink2)">Custom per player</div></div>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-top:14px">
+<div style="width:52px;height:52px;border-radius:26px;background:var(--surface2);border:1px solid var(--line);display:grid;place-items:center;font-size:24px;font-weight:500">−</div>
+<div style="text-align:center"><div style="font-size:10.5px;font-weight:800;letter-spacing:.16em;color:var(--ink3)">STARTING AMOUNT</div><div style="font-family:var(--display);font-size:40px;font-weight:700;line-height:1.1;font-variant-numeric:lining-nums tabular-nums">₹2,000</div></div>
+<div style="width:52px;height:52px;border-radius:26px;background:var(--surface2);border:1px solid var(--line);display:grid;place-items:center;font-size:24px;font-weight:500">+</div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:12px"><sc-for list="{{presets}}" as="a" hint-placeholder-count="4"><div style="height:36px;border-radius:10px;border:1px solid {{a.b}};background:{{a.bg}};display:grid;place-items:center;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums">{{a.l}}</div></sc-for></div>
+</div>
+<div style="padding:22px 20px 0;font-size:16px;font-weight:800">Money theme</div>
+<div style="margin:10px 16px 0;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+<div style="height:120px;border-radius:20px;background:var(--surface);border:2px solid var(--gold);box-shadow:var(--glow);padding:12px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between">
+<div style="display:flex;height:50px;align-items:center;padding-left:4px"><dc-import name="Money" v="500" w="74" rot="-10" hint-size="74px,34px"></dc-import><div style="margin-left:-46px;margin-top:14px"><dc-import name="Money" v="100" w="74" rot="5" hint-size="74px,34px"></dc-import></div></div>
+<div><div style="font-size:14.5px;font-weight:800">INR notes</div><div style="font-size:11.5px;color:var(--ink3);font-weight:600">₹10 – ₹500 + coins</div></div>
+</div>
+<div style="height:120px;border-radius:20px;background:var(--surface);border:1px solid var(--line);padding:12px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between">
+<div style="display:flex;height:50px;align-items:center;gap:0"><dc-import name="Money" kind="chip" v="100" w="42" hint-size="42px,42px"></dc-import><div style="margin-left:-12px"><dc-import name="Money" kind="chip" v="25" w="42" hint-size="42px,42px"></dc-import></div><div style="margin-left:-12px"><dc-import name="Money" kind="chip" v="5" w="42" hint-size="42px,42px"></dc-import></div></div>
+<div><div style="font-size:14.5px;font-weight:800">Casino chips</div><div style="font-size:11.5px;color:var(--ink3);font-weight:600">1 – 500 chips</div></div>
+</div>
+</div>
+<div style="padding:22px 20px 0;display:flex;justify-content:space-between;align-items:baseline"><div style="font-size:16px;font-weight:800">Games</div><div style="font-size:13px;font-weight:700;color:var(--gold-ink)">+ New template</div></div>
+<sc-if value="{{noGames}}" hint-placeholder-val="{{false}}">
+<div style="margin:10px 16px 0;padding:22px 18px;border-radius:20px;border:1.5px dashed var(--line-gold);text-align:center">
+<div style="font-size:15px;font-weight:800">No games yet</div>
+<div style="font-size:13px;color:var(--ink2);margin-top:4px;line-height:1.45">Start from a preset — you can tweak boot and limits after.</div>
+<div style="display:flex;gap:8px;justify-content:center;margin-top:14px"><div style="height:40px;padding:0 14px;border-radius:12px;background:var(--surface2);border:1px solid var(--line);display:grid;place-items:center;font-weight:700;font-size:13px">+ Teen Patti</div><div style="height:40px;padding:0 14px;border-radius:12px;background:var(--surface2);border:1px solid var(--line);display:grid;place-items:center;font-weight:700;font-size:13px">+ Poker</div><div style="height:40px;padding:0 14px;border-radius:12px;background:var(--surface2);border:1px solid var(--line);display:grid;place-items:center;font-weight:700;font-size:13px">+ Sequence</div></div>
+</div>
+</sc-if>
+<sc-if value="{{hasGames}}" hint-placeholder-val="{{true}}">
+<div style="margin:10px 16px 0;border-radius:20px;background:var(--surface);border:1px solid var(--line);overflow:hidden">
+<sc-for list="{{games}}" as="g" hint-placeholder-count="3">
+<div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);background:{{g.bg}}">
+<div style="width:22px;height:22px;border-radius:11px;box-sizing:border-box;border:{{g.radio}};flex:none"></div>
+<div style="flex:1;min-width:0"><div style="font-family:var(--display);font-size:18px;font-weight:600">{{g.name}}</div><div style="font-size:12px;color:var(--ink3);font-weight:600;margin-top:2px">{{g.meta}}</div></div>
+<div style="font-size:13px;font-weight:700;color:var(--gold-ink)">Edit</div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+</sc-if>
+<sc-if value="{{player}}" hint-placeholder-val="{{false}}">
+<div style="margin:14px 16px 0;padding:16px;border-radius:20px;background:var(--surface);border:1px solid var(--line);display:flex;flex-direction:column;gap:12px">
+<sc-for list="{{summary}}" as="s" hint-placeholder-count="3"><div style="display:flex;justify-content:space-between;font-size:14px"><span style="color:var(--ink2);font-weight:600">{{s.k}}</span><span style="font-weight:800">{{s.v}}</span></div></sc-for>
+</div>
+<div style="margin:22px 16px 0;text-align:center">
+<div style="display:flex;justify-content:center;gap:8px"><span style="width:8px;height:8px;border-radius:4px;background:var(--gold)"></span><span style="width:8px;height:8px;border-radius:4px;background:var(--gold);opacity:.55"></span><span style="width:8px;height:8px;border-radius:4px;background:var(--gold);opacity:.25"></span></div>
+<div style="font-family:var(--display);font-size:22px;font-weight:600;margin-top:12px">Waiting for Arjun to start</div>
+<div style="font-size:13px;color:var(--ink3);margin-top:4px">You’ll jump to the table automatically.</div>
+</div>
+</sc-if>
+<div style="position:absolute;left:0;right:0;bottom:0;padding:18px 16px 30px;background:linear-gradient(transparent,var(--bg) 35%)">
+<sc-if value="{{host}}" hint-placeholder-val="{{true}}"><div style="height:58px;border-radius:18px;background:var(--gold-grad);box-shadow:var(--gold-sh);color:var(--on-gold);display:grid;place-items:center;font-weight:800;font-size:16.5px;opacity:{{startOp}}">{{startLabel}}</div></sc-if>
+<sc-if value="{{player}}" hint-placeholder-val="{{false}}"><div style="height:58px;border-radius:18px;background:var(--surface2);border:1px solid var(--line);color:var(--ink);display:grid;place-items:center;font-weight:700;font-size:15px">Change my name</div></sc-if>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:1340},&quot;role&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;host&quot;,&quot;player&quot;,&quot;host-empty&quot;],&quot;default&quot;:&quot;host&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const role = this.props.role ?? 'host';
+    const host = role !== 'player';
+    const noGames = role === 'host-empty';
+    let s = 7; const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
+    const N = 21, qr = [];
+    const finder = (r, c) => { for (const [fr, fc] of [[0,0],[0,14],[14,0]]) { const y = r - fr, x = c - fc; if (y >= 0 && y < 7 && x >= 0 && x < 7) { const e = Math.max(Math.abs(y-3), Math.abs(x-3)); return e === 3 || e <= 1 ? 1 : 0; } if (y >= -1 && y <= 7 && x >= -1 && x <= 7) return 0; } return null; };
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) { const f = finder(r, c); qr.push((f === null ? rnd() > .52 : f) ? '#1a140a' : 'transparent'); }
+    const P = [['Arjun','AR','#9a6a2f',1],['Rahul','RA','#3d6a9a',2],['Meera','ME','#2f8a74',3],['Kabir','KA','#6a4f96',4],['Priya','PR','#9a4a5a',5],['Dev…','DE','#5f6f3a',6,1]];
+    return {
+      host, player: !host, noGames, hasGames: !noGames, H: host ? 1340 : 844, qr,
+      players: P.map(([name,ini,color,seat,joining]) => ({name,ini,seat,color: joining ? 'transparent' : color, op: joining ? .5 : 1,
+        border: joining ? '1.5px dashed var(--ink3)' : (name === 'Priya' && !host ? '3px solid var(--gold)' : '2px solid transparent')})),
+      presets: ['₹500','₹1,000','₹2,000','₹5,000'].map(l => ({l, b: l === '₹2,000' ? 'var(--gold)' : 'var(--line)', bg: l === '₹2,000' ? 'var(--surface3)' : 'transparent'})),
+      games: [
+        {name:'Teen Patti', meta:'Boot ₹10 · ₹10–₹500 · Blind/Seen · Turn-based', sel:1},
+        {name:'Poker', meta:'Blinds ₹10/₹20 · ₹20–₹1,000 · Turn-based'},
+        {name:'Sequence', meta:'₹50 entry · Teams · Free-form'},
+      ].map(g => ({...g, bg: g.sel ? 'var(--surface2)' : 'transparent', radio: g.sel ? '7px solid var(--gold)' : '2px solid var(--ink3)'})),
+      summary: [{k:'Wallet',v:'₹2,000 each'},{k:'Money',v:'INR notes'},{k:'First game',v:'Teen Patti'}],
+      startLabel: noGames ? 'Add a game to start' : 'Start Teen Patti', startOp: noGames ? .45 : 1,
+    };
+  }
+}
+</script>
+</body>
+</html>

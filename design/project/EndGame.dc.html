@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="position:relative;width:390px;height:844px;overflow:hidden;background:var(--room);color:var(--ink);font-family:var(--sans)">
+<sc-if value="{{pick}}" hint-placeholder-val="{{true}}">
+<div style="padding:56px 16px 0;display:flex;align-items:center;gap:10px">
+<div style="width:44px;height:44px;border-radius:22px;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center;font-size:20px">×</div>
+<div style="flex:1;font-family:var(--display);font-size:22px;font-weight:600">End {{game}}</div>
+</div>
+<div style="margin:14px 16px 0;padding:8px;border-radius:26px;background:var(--rail)">
+<div style="height:96px;border-radius:20px;background:var(--felt-bg);box-shadow:inset 0 0 0 1.5px var(--rail-pin),inset 0 0 40px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:space-between;padding:0 18px;color:var(--on-felt)">
+<div><div style="font-size:10.5px;font-weight:800;letter-spacing:.2em;color:var(--on-felt2)">POOL</div><div style="font-family:var(--display);font-size:42px;font-weight:700;line-height:1.05;font-variant-numeric:lining-nums tabular-nums">₹1,240</div></div>
+<div style="display:flex"><dc-import name="Money" v="500" w="74" rot="-12" hint-size="74px,34px"></dc-import><div style="margin-left:-50px;margin-top:16px"><dc-import name="Money" v="200" w="74" rot="6" hint-size="74px,34px"></dc-import></div></div>
+</div>
+</div>
+<div style="padding:20px 20px 0;font-size:16px;font-weight:800">{{q}}</div>
+<sc-if value="{{solo}}" hint-placeholder-val="{{true}}">
+<div style="margin:10px 16px 0;display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{solos}}" as="p" hint-placeholder-count="5">
+<div style="display:flex;align-items:center;gap:12px;height:64px;padding:0 14px;border-radius:18px;background:{{p.bg}};border:{{p.b}};box-shadow:{{p.sh}};opacity:{{p.op}}">
+<div style="width:40px;height:40px;border-radius:20px;background:{{p.color}};display:grid;place-items:center;color:#f6eedb;font-size:13px;font-weight:800">{{p.ini}}</div>
+<div style="flex:1"><div style="font-size:15.5px;font-weight:700">{{p.name}}</div><div style="font-size:12px;color:var(--ink3);font-weight:600">{{p.d}}</div></div>
+<div style="width:24px;height:24px;border-radius:12px;box-sizing:border-box;border:{{p.radio}}"></div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{team}}" hint-placeholder-val="{{false}}">
+<div style="margin:10px 16px 0;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+<sc-for list="{{teams}}" as="t" hint-placeholder-count="2">
+<div style="padding:14px;border-radius:20px;background:{{t.bg}};border:{{t.b}};box-shadow:{{t.sh}}">
+<div style="font-family:var(--display);font-size:19px;font-weight:600">{{t.name}}</div>
+<div style="display:flex;margin-top:10px"><sc-for list="{{t.av}}" as="a" hint-placeholder-count="3"><div style="width:34px;height:34px;border-radius:17px;background:{{a.c}};border:2px solid var(--surface);margin-right:-8px;display:grid;place-items:center;color:#f6eedb;font-size:11px;font-weight:800">{{a.i}}</div></sc-for></div>
+<div style="font-size:12px;color:var(--ink3);font-weight:600;margin-top:8px">{{t.names}}</div>
+</div>
+</sc-for>
+</div>
+<div style="margin:12px 16px 0;padding:14px 16px;border-radius:20px;background:var(--surface);border:1px solid var(--line)">
+<div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-size:13px;font-weight:700;color:var(--ink2)">Equal split</div><div style="font-size:13px;font-weight:800;font-variant-numeric:tabular-nums">₹1,240 ÷ 3 = ₹413 r ₹1</div></div>
+<sc-for list="{{split}}" as="s" hint-placeholder-count="3">
+<div style="display:flex;align-items:center;gap:10px;height:46px;border-top:1px solid var(--line);margin-top:8px">
+<div style="flex:1;font-size:14.5px;font-weight:700">{{s.n}}</div>
+<sc-if value="{{s.extra}}" hint-placeholder-val="{{false}}"><div style="padding:3px 8px;border-radius:8px;background:var(--surface3);color:var(--gold-ink);font-size:11px;font-weight:800">⚄ +₹1 remainder · random</div></sc-if>
+<div style="font-family:var(--display);font-size:20px;font-weight:700;font-variant-numeric:lining-nums tabular-nums;color:var(--up)">{{s.a}}</div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+<div style="position:absolute;left:0;right:0;bottom:0;padding:16px 16px 32px;background:linear-gradient(transparent,var(--bg) 30%)"><div style="height:58px;border-radius:18px;background:var(--gold-grad);box-shadow:var(--gold-sh);color:var(--on-gold);display:grid;place-items:center;font-weight:800;font-size:16.5px">{{cta}}</div><div style="text-align:center;font-size:12px;color:var(--ink3);margin-top:8px;font-weight:600">Everyone sees the payout. Host can undo for 30s.</div></div>
+</sc-if>
+<sc-if value="{{celebrate}}" hint-placeholder-val="{{false}}">
+<div style="position:absolute;inset:0;background:var(--felt-bg);box-shadow:inset 0 0 160px rgba(0,0,0,.7)"></div>
+<div style="position:absolute;left:50%;top:330px;width:520px;height:520px;margin:-260px 0 0 -260px;border-radius:50%;background:repeating-conic-gradient(rgba(241,213,144,.12) 0deg 6deg,transparent 6deg 18deg);-webkit-mask:radial-gradient(circle,#000 20%,transparent 70%);mask:radial-gradient(circle,#000 20%,transparent 70%)"></div>
+<sc-for list="{{burst}}" as="n" hint-placeholder-count="8"><div style="position:absolute;left:{{n.x}}px;top:{{n.y}}px;opacity:{{n.o}}"><dc-import name="Money" v="{{n.v}}" w="{{n.w}}" rot="{{n.r}}" hint-size="80px,37px"></dc-import></div></sc-for>
+<div style="position:absolute;left:0;right:0;top:200px;display:flex;flex-direction:column;align-items:center;color:var(--on-felt)">
+<div style="width:96px;height:96px;box-sizing:border-box;border-radius:48px;background:#3d6a9a;border:4px solid #f1d590;box-shadow:0 0 0 3px #f1d590,0 0 50px 16px rgba(241,213,144,.5);display:grid;place-items:center;font-size:30px;font-weight:800;color:#f6eedb">RA</div>
+<div style="margin-top:22px;font-size:11px;font-weight:800;letter-spacing:.26em;color:#f1d590">WINNER</div>
+<div style="font-family:var(--display);font-size:44px;font-weight:700;line-height:1.05;font-style:italic">Rahul</div>
+<div style="font-family:var(--display);font-size:64px;font-weight:700;line-height:1.05;color:#f1d590;font-variant-numeric:lining-nums tabular-nums;text-shadow:0 4px 24px rgba(0,0,0,.5)">+₹1,240</div>
+<div style="font-size:13px;font-weight:600;color:var(--on-felt2);margin-top:6px">Teen Patti · Round 3 · 9 bets</div>
+</div>
+<div style="position:absolute;left:16px;right:16px;bottom:34px;display:grid;grid-template-columns:1fr 1.3fr;gap:10px">
+<div style="height:56px;border-radius:18px;background:rgba(0,0,0,.35);border:1px solid rgba(246,238,219,.3);color:var(--on-felt);display:grid;place-items:center;font-weight:700;font-size:15px">Report</div>
+<div style="height:56px;border-radius:18px;background:var(--gold-grad);box-shadow:var(--gold-sh);color:var(--on-gold);display:grid;place-items:center;font-weight:800;font-size:15.5px">Next round</div>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:844},&quot;mode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;solo&quot;,&quot;team&quot;,&quot;celebrate&quot;],&quot;default&quot;:&quot;solo&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const m = this.props.mode ?? 'solo';
+    const team = m === 'team';
+    const S = [['Rahul','RA','#3d6a9a','Seen · put in ₹230',1],['Priya','PR','#9a4a5a','Seen · put in ₹150'],['Kabir','KA','#6a4f96','Seen · put in ₹180'],['Meera','ME','#2f8a74','Blind · put in ₹70'],['Dev','DE','#5f6f3a','Packed — can’t win',0,1]];
+    const burst = [[30,90,500,-30,96,.9],[250,70,200,24,90,.85],[290,250,100,-12,80,.7],[-10,300,50,18,84,.75],[60,560,20,-20,74,.6],[260,560,500,14,92,.8],[150,40,100,6,70,.55],[310,430,10,-26,70,.6],[10,450,200,22,78,.65]];
+    return {
+      pick: m !== 'celebrate', celebrate: m === 'celebrate', solo: !team, team,
+      game: team ? 'Sequence' : 'Teen Patti', q: team ? 'Which team won?' : 'Who won?',
+      cta: team ? 'Pay Team Gold ₹1,240' : 'Pay ₹1,240 to Rahul',
+      solos: S.map(([name,ini,color,d,sel,packed]) => ({name,ini,color,d, op: packed ? .4 : 1,
+        bg: sel ? 'var(--surface3)' : 'var(--surface)', b: sel ? '2px solid var(--gold)' : '1px solid var(--line)', sh: sel ? 'var(--glow)' : 'none',
+        radio: sel ? '8px solid var(--gold)' : '2px solid var(--ink3)'})),
+      teams: [
+        {name:'Team Gold', av:[{i:'PR',c:'#9a4a5a'},{i:'RA',c:'#3d6a9a'},{i:'ME',c:'#2f8a74'}], names:'Priya, Rahul, Meera', sel:1},
+        {name:'Team Green', av:[{i:'AR',c:'#9a6a2f'},{i:'KA',c:'#6a4f96'},{i:'DE',c:'#5f6f3a'}], names:'Arjun, Kabir, Dev'},
+      ].map(t => ({...t, bg: t.sel ? 'var(--surface3)' : 'var(--surface)', b: t.sel ? '2px solid var(--gold)' : '1px solid var(--line)', sh: t.sel ? 'var(--glow)' : 'none'})),
+      split: [{n:'Priya',a:'₹414',extra:true},{n:'Rahul',a:'₹413'},{n:'Meera',a:'₹413'}],
+      burst: burst.map(([x,y,v,r,w,o]) => ({x,y,v,r,w,o})),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<sc-if value="{{isNote}}" hint-placeholder-val="{{true}}">
+<div style="position:relative;flex:none;width:{{w}}px;height:{{h}}px;border-radius:{{r}}px;background:{{bg}};box-shadow:{{sh}};overflow:hidden;color:{{ink}};transform:rotate({{rot}}deg);opacity:{{op}}">
+<div style="position:absolute;inset:{{p}}px;border:1px solid {{frame}};border-radius:{{r}}px"></div>
+<div style="position:absolute;left:{{p2}}px;top:{{p2}}px;font-family:Manrope,sans-serif;font-weight:800;font-size:{{fs1}}px;line-height:1;font-variant-numeric:tabular-nums">{{v}}</div>
+<div style="position:absolute;left:{{p2}}px;bottom:{{p2}}px;font-family:Manrope,sans-serif;font-weight:800;font-size:{{fs3}}px;line-height:1">₹</div>
+<div style="position:absolute;right:{{p2}}px;bottom:{{p3}}px;font-family:'Playfair Display',serif;font-weight:700;font-size:{{fs2}}px;line-height:.8;font-variant-numeric:lining-nums;letter-spacing:-.02em">{{v}}</div>
+</div>
+</sc-if>
+<sc-if value="{{isCoin}}" hint-placeholder-val="{{false}}">
+<div style="position:relative;flex:none;width:{{w}}px;height:{{w}}px;border-radius:50%;background:{{bg}};box-shadow:{{sh}};color:{{ink}};display:grid;place-items:center;transform:rotate({{rot}}deg);opacity:{{op}}">
+<div style="position:absolute;inset:{{p}}px;border-radius:50%;border:1px solid {{frame}}"></div>
+<div style="display:flex;align-items:flex-start;gap:1px;font-family:'Playfair Display',serif;font-weight:700;line-height:1"><sc-if value="{{showR}}" hint-placeholder-val="{{true}}"><span style="font-family:Manrope,sans-serif;font-size:{{fs3}}px;margin-top:2px">₹</span></sc-if><span style="font-size:{{fs2}}px">{{v}}</span></div>
+</div>
+</sc-if>
+<sc-if value="{{isChip}}" hint-placeholder-val="{{false}}">
+<div style="position:relative;flex:none;width:{{w}}px;height:{{w}}px;border-radius:50%;background:{{bg}};box-shadow:{{sh}};transform:rotate({{rot}}deg);opacity:{{op}}">
+<div style="position:absolute;inset:{{p}}px;border-radius:50%;background:{{base}};border:{{bw}}px dashed {{stripe}};display:grid;place-items:center">
+<div style="width:{{inner}}px;height:{{inner}}px;border-radius:50%;background:{{innerBg}};display:grid;place-items:center;color:{{ink}};font-family:'Playfair Display',serif;font-weight:700;font-size:{{fs2}}px;line-height:1;font-variant-numeric:lining-nums">{{v}}</div>
+</div>
+</div>
+</sc-if>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:200,&quot;height&quot;:120},&quot;kind&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;note&quot;,&quot;coin&quot;,&quot;chip&quot;],&quot;default&quot;:&quot;note&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;v&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:100,&quot;tsType&quot;:&quot;number&quot;},&quot;w&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:120,&quot;tsType&quot;:&quot;number&quot;},&quot;rot&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:0,&quot;tsType&quot;:&quot;number&quot;},&quot;dim&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const kind = this.props.kind ?? 'note';
+    const v = Number(this.props.v ?? 100);
+    const w = Number(this.props.w ?? 120);
+    const rot = Number(this.props.rot ?? 0);
+    const op = this.props.dim ? .35 : 1;
+    const isChip = kind === 'chip';
+    const isCoin = !isChip && (kind === 'coin' || v < 10);
+    const isNote = !isChip && !isCoin;
+    const lift = `0 ${Math.max(1, w * .02)}px ${Math.max(2, w * .06)}px rgba(0,0,0,.32)`;
+    if (isNote) {
+      const N = {10:['#7b4a2c','#f6e7d0'],20:['#c9cd5b','#353708'],50:['#5ccbdd','#08343e'],100:['#ab9cd8','#241b4c'],200:['#f3b934','#472e03'],500:['#b1b2a6','#292a23']};
+      const [base, ink] = N[v] || N[100];
+      const h = Math.round(w * .46);
+      return { isNote, isCoin, isChip, v, w, h, rot, op, ink,
+        r: Math.max(2, w * .035), p: Math.max(2, w * .04), p2: Math.max(3, w * .07), p3: Math.max(3, w * .06),
+        fs1: Math.max(7, h * .2), fs2: h * .62, fs3: Math.max(7, h * .2),
+        frame: ink === '#f6e7d0' ? 'rgba(246,231,208,.35)' : 'rgba(0,0,0,.18)',
+        bg: `repeating-conic-gradient(from 0deg at 30% 52%, rgba(0,0,0,.075) 0deg 5deg, transparent 5deg 10deg), radial-gradient(ellipse 34% 60% at 30% 52%, rgba(255,255,255,.28), transparent 70%), linear-gradient(90deg, transparent 52%, rgba(255,255,255,.16) 52% 54%, transparent 54%), linear-gradient(160deg, rgba(255,255,255,.16), rgba(0,0,0,.12)), ${base}`,
+        sh: `inset 0 0 0 1px rgba(0,0,0,.12), ${lift}` };
+    }
+    if (isCoin) {
+      const C = {1:['#eceeee','#9b9fa0','#2a2c2d'],2:['#dfe2e2','#868b8c','#25282a'],5:['#f2d88f','#a47e2c','#3a2906']};
+      const [hi, dk, ink] = C[v] || C[1];
+      return { isNote, isCoin, isChip, v, w, rot, op, ink, p: w * .09, fs2: w * .44, fs3: w * .18, showR: w >= 40,
+        frame: 'rgba(0,0,0,.22)',
+        bg: `radial-gradient(circle at 34% 28%, #fff 0, ${hi} 34%, ${dk} 100%)`,
+        sh: `inset 0 0 0 1px rgba(0,0,0,.2), inset 0 -2px 3px rgba(0,0,0,.15), ${lift}` };
+    }
+    const K = {1:['#ece6d8','#2457a6','#1d2b44'],5:['#b3302a','#f4efe4','#fff'],10:['#2156a6','#f4efe4','#fff'],25:['#25774a','#f4efe4','#fff'],100:['#1d1d1d','#e6d29a','#f1e2b4'],500:['#5b3594','#f2c443','#fff']};
+    const [base, stripe, ink] = K[v] || K[5];
+    return { isNote, isCoin, isChip, v, w, rot, op, base, stripe, ink,
+      p: w * .13, bw: Math.max(1, w * .03), inner: w * .5, fs2: w * (String(v).length > 2 ? .2 : .26),
+      innerBg: `radial-gradient(circle at 40% 35%, rgba(255,255,255,.22), transparent 70%), ${base}`,
+      bg: `repeating-conic-gradient(from 8deg, ${stripe} 0deg 15deg, ${base} 15deg 60deg)`,
+      sh: `inset 0 0 0 1px rgba(0,0,0,.28), inset 0 0 0 ${Math.max(1,w*.02)}px rgba(255,255,255,.08), ${lift}` };
+  }
+}
+</script>
+</body>
+</html>

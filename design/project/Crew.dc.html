@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="position:relative;width:390px;height:844px;overflow:hidden;background:var(--room);color:var(--ink);font-family:var(--sans)">
+<div style="padding:56px 16px 0;display:flex;align-items:center;gap:10px">
+<div style="width:44px;height:44px;border-radius:22px;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="stroke-width:2;stroke-linecap:round"><path d="M15 5l-7 7 7 7"></path></svg></div>
+<div style="flex:1;font-size:13px;font-weight:700;color:var(--ink3);letter-spacing:.1em">{{eyebrow}}</div>
+</div>
+<sc-if value="{{board}}" hint-placeholder-val="{{true}}">
+<div style="padding:14px 20px 0"><div style="font-family:var(--display);font-size:32px;font-weight:600;line-height:1.1">Friday Night Crew</div><div style="font-size:13.5px;color:var(--ink2);margin-top:4px">7 players · 23 sessions since March</div></div>
+<div style="margin:16px 16px 0;display:grid;grid-template-columns:1fr 1fr;padding:3px;border-radius:14px;background:var(--surface3)"><div style="height:40px;border-radius:11px;background:var(--surface);box-shadow:var(--sh1);display:grid;place-items:center;font-weight:800;font-size:14px">All time</div><div style="height:40px;display:grid;place-items:center;font-weight:700;font-size:14px;color:var(--ink2)">This month</div></div>
+<div style="margin:14px 16px 0;border-radius:22px;background:var(--surface);border:1px solid var(--line);overflow:hidden">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="7">
+<div style="display:flex;align-items:center;gap:12px;height:64px;padding:0 16px;border-bottom:1px solid var(--line);background:{{r.bg}}">
+<div style="width:26px;font-family:var(--display);font-size:22px;font-weight:700;color:{{r.rc}};text-align:center;font-variant-numeric:lining-nums">{{r.rank}}</div>
+<div style="width:40px;height:40px;border-radius:20px;background:{{r.color}};display:grid;place-items:center;color:#f6eedb;font-size:13px;font-weight:800">{{r.ini}}</div>
+<div style="flex:1"><div style="font-size:15px;font-weight:700">{{r.name}}</div><div style="font-size:12px;color:var(--ink3);font-weight:600">{{r.meta}}</div></div>
+<div style="font-family:var(--display);font-size:20px;font-weight:700;color:{{r.c}};font-variant-numeric:lining-nums tabular-nums">{{r.net}}</div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{profile}}" hint-placeholder-val="{{false}}">
+<div style="display:flex;flex-direction:column;align-items:center;padding-top:14px">
+<div style="width:96px;height:96px;box-sizing:border-box;border-radius:48px;background:#3d6a9a;border:3px solid #f1d590;display:grid;place-items:center;color:#f6eedb;font-size:32px;font-weight:800">RA</div>
+<div style="font-family:var(--display);font-size:32px;font-weight:600;margin-top:12px">Rahul</div>
+<div style="font-size:13px;color:var(--ink3);font-weight:600">#1 in Friday Night Crew · since March</div>
+</div>
+<div style="margin:18px 16px 0;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+<sc-for list="{{stats}}" as="s" hint-placeholder-count="4"><div style="padding:14px;border-radius:18px;background:var(--surface);border:1px solid var(--line)"><div style="font-size:10.5px;font-weight:800;letter-spacing:.12em;color:var(--ink3)">{{s.k}}</div><div style="font-family:var(--display);font-size:28px;font-weight:700;margin-top:2px;color:{{s.c}};font-variant-numeric:lining-nums tabular-nums">{{s.v}}</div></div></sc-for>
+</div>
+<div style="margin:12px 16px 0;padding:14px 16px;border-radius:18px;background:var(--surface);border:1px solid var(--line)">
+<div style="display:flex;justify-content:space-between"><div style="font-size:13px;font-weight:800">Net by session</div><div style="font-size:12px;color:var(--ink3);font-weight:600">Last 12</div></div>
+<div style="height:96px;margin-top:10px;display:flex;align-items:center;gap:5px;position:relative">
+<div style="position:absolute;left:0;right:0;top:48px;border-top:1px dashed var(--line)"></div>
+<sc-for list="{{bars}}" as="b" hint-placeholder-count="12"><div style="flex:1;height:96px;position:relative"><div style="position:absolute;left:0;right:0;top:{{b.top}}px;height:{{b.h}}px;background:{{b.c}};border-radius:3px"></div></div></sc-for>
+</div>
+</div>
+<div style="margin:12px 16px 0;border-radius:18px;background:var(--surface);border:1px solid var(--line);padding:4px 16px">
+<sc-for list="{{recent}}" as="r" hint-placeholder-count="3"><div style="display:flex;align-items:center;justify-content:space-between;height:48px;border-bottom:1px solid var(--line)"><span style="font-size:13.5px;font-weight:600;color:var(--ink2)">{{r.t}}</span><span style="font-family:var(--display);font-size:17px;font-weight:700;color:{{r.c}};font-variant-numeric:lining-nums tabular-nums">{{r.a}}</span></div></sc-for>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:844},&quot;view&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;board&quot;,&quot;profile&quot;],&quot;default&quot;:&quot;board&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const profile = this.props.view === 'profile';
+    const R = [['Rahul','RA','#3d6a9a',6420,'21 sessions · 58 wins'],['Priya','PR','#9a4a5a',2980,'23 sessions · 41 wins'],['Meera','ME','#2f8a74',1150,'19 sessions · 33 wins'],['Sana','SA','#8a3f7a',-320,'8 sessions · 9 wins'],['Kabir','KA','#6a4f96',-1870,'22 sessions · 30 wins'],['Arjun','AR','#9a6a2f',-3540,'23 sessions · 36 wins'],['Dev','DE','#5f6f3a',-4820,'20 sessions · 22 wins']];
+    const fmt = n => (n >= 0 ? '+' : '−') + '₹' + Math.abs(n).toLocaleString('en-IN');
+    const rc = ['#d4ac5a','#a9adb3','#b0763e'];
+    const B = [420,-180,910,260,-90,1820,-640,380,150,-220,1240,560];
+    return {
+      board: !profile, profile, eyebrow: profile ? 'PLAYER' : 'CREW LEADERBOARD',
+      rows: R.map(([name,ini,color,n,meta],i) => ({name,ini,color,meta,rank:i+1,net:fmt(n),c:n>=0?'var(--up)':'var(--down)',rc:rc[i]||'var(--ink3)',bg:i===0?'var(--surface2)':'transparent'})),
+      stats: [{k:'SESSIONS',v:'21',c:'var(--ink)'},{k:'TOTAL NET',v:'+₹6,420',c:'var(--up)'},{k:'GAMES WON',v:'58',c:'var(--ink)'},{k:'BIGGEST WIN',v:'₹3,120',c:'var(--gold-ink)'}],
+      bars: B.map(v => { const h = Math.round(Math.abs(v) / 1820 * 44); return {h, top: v >= 0 ? 48 - h : 48, c: v >= 0 ? 'var(--up)' : 'var(--down)'}; }),
+      recent: [{t:'Diwali Teen Patti · 7 Nov',a:'+₹1,820',c:'var(--up)'},{t:'Poker at Kabir’s · 30 Oct',a:'+₹560',c:'var(--up)'},{t:'Sequence night · 24 Oct',a:'−₹220',c:'var(--down)'}],
+    };
+  }
+}
+</script>
+</body>
+</html>

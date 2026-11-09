@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="position:relative;width:390px;height:844px;overflow:hidden;background:var(--room);color:var(--ink);font-family:var(--sans)">
+<div style="position:absolute;left:10px;top:80px;width:370px;height:392px;border-radius:50%;background:var(--rail)"><div style="position:absolute;inset:13px;border-radius:50%;background:var(--felt-bg)"></div></div>
+<div style="position:absolute;inset:0;background:var(--scrim)"></div>
+<div style="position:absolute;left:0;right:0;top:70px;bottom:0;padding:10px 16px 0;border-radius:28px 28px 0 0;background:var(--surface);box-shadow:var(--sh2)">
+<div style="margin:0 auto 10px;width:40px;height:5px;border-radius:3px;background:var(--line)"></div>
+<div style="display:flex;align-items:flex-end;justify-content:space-between;padding:0 4px">
+<div><div style="font-size:11px;font-weight:800;letter-spacing:.16em;color:var(--ink3)">MY WALLET</div><div style="font-family:var(--display);font-size:50px;font-weight:700;line-height:1.05;font-variant-numeric:lining-nums tabular-nums">₹3,450</div></div>
+<div style="text-align:right;font-size:12px;color:var(--ink3);font-weight:600;line-height:1.5;font-variant-numeric:tabular-nums">Buy-in ₹2,000<br>Top-ups ₹1,000<br>In this pot ₹150</div>
+</div>
+<div style="margin-top:12px;height:58px;border-radius:16px;background:var(--surface2);display:flex;align-items:center;gap:6px;padding:0 10px;overflow:hidden">
+<sc-for list="{{mix}}" as="m" hint-placeholder-count="6"><div style="position:relative;flex:none"><dc-import name="Money" kind="{{m.kind}}" v="{{m.v}}" w="{{m.w}}" hint-size="52px,24px"></dc-import><div style="position:absolute;top:-6px;right:-5px;padding:0 4px;border-radius:6px;background:var(--ink);color:var(--bg);font-size:9.5px;font-weight:800">{{m.n}}</div></div></sc-for>
+</div>
+<div style="margin-top:12px;display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:8px">
+<div style="height:52px;border-radius:16px;background:var(--gold-grad);box-shadow:var(--gold-sh);color:var(--on-gold);display:grid;place-items:center;font-weight:800;font-size:15px">+ Top up</div>
+<div style="height:52px;border-radius:16px;background:var(--surface2);border:1px solid var(--line);display:grid;place-items:center;font-weight:700;font-size:15px">Lend</div>
+<div style="height:52px;border-radius:16px;background:var(--surface2);border:1px solid var(--line);display:grid;place-items:center;font-weight:700;font-size:15px">Borrow</div>
+</div>
+<div style="margin-top:14px;padding:14px;border-radius:18px;background:var(--surface3);border:1px solid var(--line-gold)">
+<div style="display:flex;align-items:center;gap:10px"><div style="width:36px;height:36px;border-radius:18px;background:#6a4f96;color:#f6eedb;display:grid;place-items:center;font-size:12px;font-weight:800">KA</div><div style="flex:1;font-size:14px;line-height:1.35"><b>Kabir</b> wants to borrow <b style="font-variant-numeric:tabular-nums">₹300</b> from you</div></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px"><div style="height:44px;border-radius:12px;border:1px solid var(--line);display:grid;place-items:center;font-weight:700;font-size:14px">Decline</div><div style="height:44px;border-radius:12px;background:var(--ink);color:var(--bg);display:grid;place-items:center;font-weight:800;font-size:14px">Lend ₹300</div></div>
+</div>
+<div style="margin-top:16px;padding:0 4px;font-size:11px;font-weight:800;letter-spacing:.14em;color:var(--ink3)">OUTSTANDING LOANS</div>
+<sc-for list="{{loans}}" as="l" hint-placeholder-count="2">
+<div style="display:flex;align-items:center;gap:10px;min-height:56px;border-bottom:1px solid var(--line);padding:0 4px">
+<div style="flex:1"><div style="font-size:14px;font-weight:700">{{l.t}}</div><div style="font-size:12px;color:var(--ink3)">{{l.d}}</div></div>
+<div style="font-family:var(--display);font-size:19px;font-weight:700;color:{{l.c}};font-variant-numeric:lining-nums tabular-nums">{{l.a}}</div>
+<div style="height:36px;padding:0 10px;border-radius:10px;border:1px solid {{l.bc}};display:grid;place-items:center;font-size:12px;font-weight:800;color:{{l.btnC}}">{{l.btn}}</div>
+</div>
+</sc-for>
+<div style="margin-top:16px;padding:0 4px;font-size:11px;font-weight:800;letter-spacing:.14em;color:var(--ink3)">TOP-UP HISTORY</div>
+<sc-for list="{{tops}}" as="t" hint-placeholder-count="3">
+<div style="display:flex;align-items:center;justify-content:space-between;height:44px;border-bottom:1px solid var(--line);padding:0 4px;font-size:14px"><span style="font-weight:600;color:var(--ink2)">{{t.d}}</span><span style="font-weight:800;font-variant-numeric:tabular-nums">{{t.a}}</span></div>
+</sc-for>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:844},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;notes&quot;,&quot;chips&quot;],&quot;default&quot;:&quot;notes&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const chips = this.props.theme === 'chips';
+    const mix = chips
+      ? [[500,'×3'],[100,'×9'],[25,'×10'],[10,'×12'],[5,'×8'],[1,'×10']].map(([v,n]) => ({kind:'chip',v,n,w:40}))
+      : [[500,'×3'],[200,'×4'],[100,'×8'],[50,'×6'],[20,'×5'],[10,'×4']].map(([v,n]) => ({kind:'note',v,n,w:52}));
+    return {
+      mix,
+      loans: [
+        {t:'You lent Rahul',d:'21:10 · accepted',a:'₹500',c:'var(--up)',btn:'Mark repaid',bc:'var(--line)',btnC:'var(--ink)'},
+        {t:'You asked Meera',d:'21:31 · waiting for Meera to accept',a:'₹200',c:'var(--ink3)',btn:'Cancel',bc:'var(--line)',btnC:'var(--ink3)'},
+      ],
+      tops: [{d:'Buy-in · 20:02',a:'₹2,000'},{d:'Top up · 21:05',a:'+₹500'},{d:'Top up · 21:28',a:'+₹500'}],
+    };
+  }
+}
+</script>
+</body>
+</html>
