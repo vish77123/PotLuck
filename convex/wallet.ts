@@ -1,6 +1,7 @@
 import { v } from "convex/values";
-import { mutation } from "./_generated/server";
-import { getPlayerInSession, requireActivePlayer } from "./lib/access";
+import { mutation, query } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import { getPlayerInSession, requireActivePlayer, requirePlayer } from "./lib/access";
 import { fail } from "./lib/errors";
 import { activeGameOf, participantOf } from "./lib/game";
 import { applyEntry, getWallet, withIdempotency } from "./lib/ledger";
@@ -82,5 +83,75 @@ export const cashOut = mutation({
       await ctx.db.patch(target._id, { status: "left" });
       return { amount };
     });
+  },
+});
+
+/** Everything the wallet sheet shows: totals, what's tied up in the pot, loans with names, buy-in and top-up history. */
+export const overview = query({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, { sessionId }) => {
+    const { player } = await requirePlayer(ctx, sessionId);
+    const wallet = await ctx.db
+      .query("wallets")
+      .withIndex("by_player", (q) => q.eq("sessionPlayerId", player._id))
+      .unique();
+
+    const [buyIns, topUps, reversals] = await Promise.all([
+      ctx.db.query("ledgerEntries").withIndex("by_session_type", (q) => q.eq("sessionId", sessionId).eq("type", "BUY_IN")).collect(),
+      ctx.db.query("ledgerEntries").withIndex("by_session_type", (q) => q.eq("sessionId", sessionId).eq("type", "TOP_UP")).collect(),
+      ctx.db.query("ledgerEntries").withIndex("by_session_type", (q) => q.eq("sessionId", sessionId).eq("type", "REVERSAL")).collect(),
+    ]);
+    const reversed = new Set(reversals.map((r) => r.reversesEntryId as string));
+    const mine = [...buyIns, ...topUps]
+      .filter((e) => e.toPlayerId === player._id)
+      .sort((a, b) => a.seq - b.seq)
+      .map((e) => ({ entryId: e._id, type: e.type as "BUY_IN" | "TOP_UP", amount: e.amount, at: e.createdAt, undone: reversed.has(e._id) }));
+    const live = mine.filter((e) => !e.undone);
+
+    // Money of mine that's sitting in the pot of a game that's still going.
+    let inPot = 0;
+    const game = await ctx.db
+      .query("games")
+      .withIndex("by_session_status", (q) => q.eq("sessionId", sessionId).eq("status", "active"))
+      .first();
+    if (game) {
+      const entries = await ctx.db.query("ledgerEntries").withIndex("by_game", (q) => q.eq("gameId", game._id)).take(3000);
+      const undone = new Set(entries.filter((e) => e.type === "REVERSAL").map((e) => e.reversesEntryId as string));
+      for (const e of entries) {
+        if ((e.type === "BOOT" || e.type === "BET") && e.fromPlayerId === player._id && !undone.has(e._id)) inPot += e.amount;
+      }
+    }
+
+    const loans = await ctx.db.query("loans").withIndex("by_session", (q) => q.eq("sessionId", sessionId)).collect();
+    const names = new Map<string, string>();
+    const nameOf = async (id: Id<"sessionPlayers">) => {
+      if (!names.has(id)) names.set(id, (await ctx.db.get(id))?.name ?? "Someone");
+      return names.get(id)!;
+    };
+    const myLoans = [];
+    for (const l of loans) {
+      if (l.lenderPlayerId !== player._id && l.borrowerPlayerId !== player._id) continue;
+      if (l.status === "declined" || l.status === "reversed") continue;
+      const iAmLender = l.lenderPlayerId === player._id;
+      myLoans.push({
+        _id: l._id,
+        role: iAmLender ? ("lender" as const) : ("borrower" as const),
+        otherId: iAmLender ? l.borrowerPlayerId : l.lenderPlayerId,
+        otherName: await nameOf(iAmLender ? l.borrowerPlayerId : l.lenderPlayerId),
+        amount: l.amount,
+        repaidAmount: l.repaidAmount,
+        status: l.status,
+        at: l.requestedAt,
+      });
+    }
+
+    return {
+      balance: wallet?.balance ?? 0,
+      buyIn: live.filter((e) => e.type === "BUY_IN").reduce((s, e) => s + e.amount, 0),
+      topUps: live.filter((e) => e.type === "TOP_UP").reduce((s, e) => s + e.amount, 0),
+      inPot,
+      history: mine,
+      loans: myLoans.sort((a, b) => b.at - a.at),
+    };
   },
 });

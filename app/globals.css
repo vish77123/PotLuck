@@ -209,3 +209,9 @@ html[data-motion="off"] *::after {
     box-shadow: 0 0 0 3px #f1d590, 0 0 30px 10px rgba(241, 213, 144, 0.6);
   }
 }
+
+@keyframes pl-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

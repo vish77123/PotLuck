@@ -161,6 +161,39 @@ describe("loans", () => {
   });
 });
 
+describe("wallet overview", () => {
+  test("totals, pot share, history and loans from my side", async () => {
+    const t = setup();
+    const s = await table(t, ["Arjun", "Priya"]);
+    await s.seats.Priya.as.mutation(api.wallet.topUp, { sessionId: s.sessionId, amount: 500, idempotencyKey: key() });
+    const tu2 = await s.seats.Priya.as.mutation(api.wallet.topUp, { sessionId: s.sessionId, amount: 200, idempotencyKey: key() });
+    await s.host.as.mutation(api.host.undo, { entryId: tu2.entryId, idempotencyKey: key() });
+    const { gameId } = await startGame(t, s, "Teen Patti", ["Arjun", "Priya"]);
+    await s.host.as.mutation(api.games.bet, { gameId, amount: 40, idempotencyKey: key() });
+    const { loanId } = await s.seats.Priya.as.mutation(api.loans.request, {
+      sessionId: s.sessionId,
+      lenderPlayerId: s.host.playerId,
+      amount: 100,
+      idempotencyKey: key(),
+    });
+    const mine = await s.seats.Priya.as.query(api.wallet.overview, { sessionId: s.sessionId });
+    expect(mine).toMatchObject({ balance: 1490, buyIn: 1000, topUps: 500, inPot: 10 });
+    expect(mine.history.map((h) => [h.type, h.amount, h.undone])).toEqual([
+      ["BUY_IN", 1000, false],
+      ["TOP_UP", 500, false],
+      ["TOP_UP", 200, true],
+    ]);
+    expect(mine.loans).toMatchObject([{ role: "borrower", otherName: "Arjun", amount: 100, status: "requested" }]);
+
+    const theirs = await s.host.as.query(api.wallet.overview, { sessionId: s.sessionId });
+    expect(theirs.inPot).toBe(50);
+    expect(theirs.loans).toMatchObject([{ _id: loanId, role: "lender", otherName: "Priya" }]);
+    // Declined requests drop off the list.
+    await s.host.as.mutation(api.loans.respond, { loanId, accept: false, idempotencyKey: key() });
+    expect((await s.host.as.query(api.wallet.overview, { sessionId: s.sessionId })).loans).toEqual([]);
+  });
+});
+
 describe("cash out", () => {
   test("not while playing; allowed after packing; full balance leaves, player stays in report", async () => {
     const t = setup();

@@ -166,8 +166,8 @@ export function BetTray(p: Props) {
         <div className="flex min-w-0 flex-col justify-center">
           <div className="text-[10.5px] font-extrabold tracking-[.14em] text-ink3">{p.readout.label}</div>
           <div
-            className="amount truncate leading-[1.05]"
-            style={{ fontSize: p.readout.text ? 21 : stackEmpty ? 26 : 38, color: p.readout.amountBad ? "var(--down)" : "var(--ink)" }}
+            className={`amount leading-[1.05] ${p.readout.text ? "line-clamp-2" : "truncate"}`}
+            style={{ fontSize: p.readout.text ? 19 : stackEmpty ? 26 : 38, color: p.readout.amountBad ? "var(--down)" : "var(--ink)" }}
           >
             {p.readout.amount}
           </div>

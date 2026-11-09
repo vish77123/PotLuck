@@ -15,6 +15,9 @@ type UiState = {
   /** The first-bet walkthrough has been dismissed on this phone. */
   hintSeen: boolean;
   setHintSeen: (v: boolean) => void;
+  /** sessionId → the last finished game this phone has already seen the result of. */
+  ackedGame: Record<string, string>;
+  ackGame: (sessionId: string, gameId: string) => void;
   setSound: (v: boolean) => void;
   setHaptics: (v: boolean) => void;
   setAnimations: (v: Motion) => void;
@@ -66,6 +69,8 @@ export const useUi = create<UiState>()(
       lastMember: {},
       hintSeen: false,
       setHintSeen: (hintSeen) => set({ hintSeen }),
+      ackedGame: {},
+      ackGame: (sessionId, gameId) => set((s) => ({ ackedGame: { ...s.ackedGame, [sessionId]: gameId } })),
       setSound: (sound) => set({ sound }),
       setHaptics: (haptics) => set({ haptics }),
       setAnimations: (animations) => set({ animations }),
@@ -94,6 +99,7 @@ export const useUi = create<UiState>()(
         appearance: s.appearance,
         lastMember: s.lastMember,
         hintSeen: s.hintSeen,
+        ackedGame: s.ackedGame,
       }),
     },
   ),

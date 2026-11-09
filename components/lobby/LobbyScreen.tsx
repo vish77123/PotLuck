@@ -4,6 +4,7 @@ import { useConvex } from "convex/react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { GamesCard } from "@/components/lobby/GamesCard";
+import { LastGameCard } from "@/components/lobby/LastGameCard";
 import { PlayerGrid } from "@/components/lobby/PlayerGrid";
 import { RoomCard } from "@/components/lobby/RoomCard";
 import { SeatsSheet } from "@/components/lobby/SeatsSheet";
@@ -91,6 +92,8 @@ export function LobbyScreen({ code, state }: { code: string; state: SessionState
         </div>
       </div>
       <PlayerGrid players={players} meId={meId} seen={seen} now={now} />
+
+      {state.latestGame?.status === "ended" && <LastGameCard state={state} game={state.latestGame} />}
 
       {isHost ? (
         <>

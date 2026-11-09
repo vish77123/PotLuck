@@ -4,7 +4,12 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { LobbyScreen } from "@/components/lobby/LobbyScreen";
+import { ResultScreen, awayText, useResult } from "@/components/table/ResultScreen";
 import { TableScreen } from "@/components/table/TableScreen";
+import type { SessionState } from "@/components/lobby/types";
+import { Dialog } from "@/components/ui/Dialog";
+import { useGameResult } from "@/hooks/useGameResult";
+import { useUi } from "@/stores/ui";
 import { BackButton } from "@/components/ui/controls";
 import { api } from "@/convex/_generated/api";
 import { useAuthedQuery } from "@/hooks/useAuthedQuery";
@@ -18,6 +23,44 @@ function Shell({ children }: { children: React.ReactNode }) {
       </div>
       {children}
     </main>
+  );
+}
+
+type Game = NonNullable<SessionState["latestGame"]>;
+
+/** Shown over the lobby when a game finished while this phone wasn't looking. */
+function AwayNote({ code, state, game }: { code: string; state: SessionState; game: Game }) {
+  const router = useRouter();
+  const ack = useUi((s) => s.ackGame);
+  const r = useResult(state, game);
+  const text = awayText(state, game, r);
+  return (
+    <Dialog
+      open={r.ready}
+      eyebrow="WHILE YOU WERE AWAY"
+      title={text.title}
+      body={text.body}
+      noLabel="Session report"
+      yesLabel="Back to table"
+      onNo={() => {
+        ack(state.session._id, game._id);
+        router.push(`/s/${code}/report`);
+      }}
+      onYes={() => ack(state.session._id, game._id)}
+    />
+  );
+}
+
+/** Table while a game is live, winner celebration right after, lobby/waiting room otherwise. */
+function SessionRouter({ code, state }: { code: string; state: SessionState }) {
+  const result = useGameResult(state);
+  if (state.latestGame?.status === "active") return <TableScreen state={state} game={state.latestGame} />;
+  if (result.kind === "celebrate") return <ResultScreen code={code} state={state} game={result.game} />;
+  return (
+    <>
+      <LobbyScreen code={code} state={state} />
+      {result.kind === "away" && <AwayNote code={code} state={state} game={result.game} />}
+    </>
   );
 }
 
@@ -63,7 +106,5 @@ export default function SessionPage() {
       </Shell>
     );
   }
-  // A live game puts everyone at the table; between games the lobby doubles as the waiting room.
-  if (state.latestGame?.status === "active") return <TableScreen state={state} game={state.latestGame} />;
-  return <LobbyScreen code={code} state={state} />;
+  return <SessionRouter code={code} state={state} />;
 }

@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Money } from "@/components/money/Money";
 import type { SessionState } from "@/components/lobby/types";
 import { BetTray, type Quick } from "@/components/table/BetTray";
+import { EndGameScreen } from "@/components/table/EndGameScreen";
+import { HostPanel } from "@/components/table/HostPanel";
 import { FeedDrawer } from "@/components/table/FeedDrawer";
 import { PoolPile } from "@/components/table/PoolPile";
 import { Seat, type SeatView } from "@/components/table/Seat";
@@ -63,6 +65,10 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
   const [hot, setHot] = useState(false);
   const [confirmBet, setConfirmBet] = useState(false);
   const [confirmPack, setConfirmPack] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [endOpen, setEndOpen] = useState(false);
+  const [claimOpen, setClaimOpen] = useState(false);
+  const [claimDismissed, setClaimDismissed] = useState(false);
   const poolRef = useRef<HTMLDivElement>(null);
   const betKey = useRef<string | null>(null);
 
@@ -102,8 +108,26 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
     };
   });
 
+  // The host's phone has gone quiet for 2 minutes: bets pause until someone claims host.
+  const hostSeen = session.hostPlayerId ? seen.get(session.hostPlayerId) : undefined;
+  const hostGone = !isHost && presence !== undefined && (hostSeen === undefined || now - hostSeen > 120_000);
+  useEffect(() => {
+    if (!hostGone) {
+      setClaimDismissed(false);
+      setClaimOpen(false);
+    } else if (!claimDismissed) {
+      setClaimOpen(true);
+    }
+  }, [hostGone, claimDismissed]);
+  const claimHost = () =>
+    act.run(async () => {
+      await convex.mutation(api.host.claim, { sessionId: session._id });
+      setClaimOpen(false);
+      pushToast({ text: "You're the host now." });
+    });
+
   const myTurn = turnBased && game.currentTurnPlayerId === meId;
-  const canAct = !!meP && meP.status === "playing" && (turnBased ? myTurn : true) && !reconnecting && me.status === "active";
+  const canAct = !!meP && meP.status === "playing" && (turnBased ? myTurn : true) && !reconnecting && !hostGone && me.status === "active";
   const myTeam = teamOf(meP?.teamNo);
   const turnName = nameOf(game.currentTurnPlayerId);
 
@@ -118,7 +142,10 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
 
   let status = { label: turnBased ? `${turnName.toUpperCase()}’S TURN` : "FREE-FORM · BET ANY TIME", color: "var(--ink3)" };
   let readout: { label: string; amount: string; sub: string; subTone: "normal" | "warn" | "bad"; amountBad: boolean; text?: boolean };
-  if (reconnecting) {
+  if (hostGone) {
+    status = { label: "PAUSED", color: "var(--warn)" };
+    readout = { label: "PAUSED", amount: "No host", sub: "Claim host to keep playing", subTone: "warn", amountBad: false, text: true };
+  } else if (reconnecting) {
     status = { label: "OFFLINE", color: "var(--warn)" };
     readout = { label: "PAUSED", amount: "Reconnecting…", sub: "Bets resume when you’re back online", subTone: "normal", amountBad: false, text: true };
   } else if (!meP) {
@@ -242,6 +269,29 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
         live={!reconnecting}
         unread={unread}
         onFeed={() => setFeedOpen(true)}
+        right={
+          isHost ? (
+            <button
+              onClick={() => setPanelOpen(true)}
+              aria-label="Host controls"
+              className="press grid h-11 w-11 place-items-center rounded-full border bg-surface text-gold-ink"
+              style={{ borderColor: "var(--line-gold)" }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+                <path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z" />
+              </svg>
+            </button>
+          ) : hostGone ? (
+            <button
+              onClick={() => setClaimOpen(true)}
+              aria-label="Claim host"
+              className="press grid h-11 w-11 place-items-center rounded-full border bg-surface text-warn"
+              style={{ borderColor: "var(--warn)", animation: "pl-pulse 1.6s ease-in-out infinite" }}
+            >
+              ♛
+            </button>
+          ) : undefined
+        }
       />
 
       {reconnecting ? (
@@ -395,6 +445,25 @@ export function TableScreen({ state, game }: { state: SessionState; game: Game }
         meId={meId}
         names={nameOf}
         blindSeen={!!template.blindSeenMultiplier}
+      />
+
+      {isHost && <HostPanel open={panelOpen} onClose={() => setPanelOpen(false)} state={state} game={game} onEndGame={() => setEndOpen(true)} />}
+      {isHost && endOpen && <EndGameScreen state={state} game={game} onClose={() => setEndOpen(false)} />}
+
+      <Dialog
+        open={claimOpen && hostGone}
+        eyebrow="HOST LEFT"
+        eyebrowColor="var(--warn)"
+        title={`${nameOf(session.hostPlayerId)} left the table`}
+        body="Someone needs to run the game — end rounds, undo bets and manage players. Bets are paused until then."
+        noLabel="Not now"
+        yesLabel="Claim host"
+        onNo={() => {
+          setClaimOpen(false);
+          setClaimDismissed(true);
+        }}
+        onYes={claimHost}
+        pending={act.pending}
       />
 
       <Dialog

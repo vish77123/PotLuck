@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { mutation } from "./_generated/server";
-import { getGameInSession, getPlayerInSession, requireActivePlayer, requireHost } from "./lib/access";
+import { mutation, query } from "./_generated/server";
+import { getGameInSession, getPlayerInSession, requireActivePlayer, requireHost, requirePlayer } from "./lib/access";
 import { fail } from "./lib/errors";
 import {
   activeGameOf,
@@ -163,26 +163,30 @@ export const bet = mutation({
 });
 
 export const pack = mutation({
-  args: { gameId: v.id("games") },
-  handler: async (ctx, { gameId }) => {
+  args: { gameId: v.id("games"), playerId: v.optional(v.id("sessionPlayers")) },
+  handler: async (ctx, { gameId, playerId }) => {
     const game = await getGameInSession(ctx, gameId);
-    const { player } = await requireActivePlayer(ctx, game.sessionId);
+    const { player, isHost } = await requireActivePlayer(ctx, game.sessionId);
     requireActiveGame(game);
-    const me = await requireMyParticipant(ctx, game, player._id);
-    if (me.status === "packed") return null; // double tap
-    if (game.templateSnapshot.turnMode === "turn_based" && game.currentTurnPlayerId !== player._id) {
+    const targetId = playerId ?? player._id;
+    const forSomeoneElse = targetId !== player._id;
+    if (forSomeoneElse && !isHost) fail("NOT_HOST", "Only the host can pack for another player.");
+    const target = await participantOf(ctx, gameId, targetId);
+    if (!target) fail("FORBIDDEN", forSomeoneElse ? "That player isn't in this game." : "You're not playing in this game.");
+    if (target.status === "packed") return null; // double tap
+    if (!forSomeoneElse && game.templateSnapshot.turnMode === "turn_based" && game.currentTurnPlayerId !== player._id) {
       fail("NOT_YOUR_TURN", "You can pack on your turn.");
     }
-    await ctx.db.patch(me._id, { status: "packed" });
+    await ctx.db.patch(target._id, { status: "packed" });
     await ctx.db.insert("gameEvents", {
       sessionId: game.sessionId,
       gameId,
       kind: "pack",
-      playerId: player._id,
+      playerId: targetId,
       byPlayerId: player._id,
       createdAt: Date.now(),
     });
-    if (game.currentTurnPlayerId === player._id) await advanceTurn(ctx, game, player._id);
+    if (game.currentTurnPlayerId === targetId) await advanceTurn(ctx, game, targetId);
     return null;
   },
 });
@@ -210,6 +214,22 @@ export const setTurn = mutation({
     if (!target) fail("NOT_FOUND", "That player isn't in this game.");
     if (target.status !== "playing") fail("INVALID_STATE", "That player has packed.");
     await ctx.db.patch(gameId, { currentTurnPlayerId: playerId, turnStartedAt: Date.now() });
+    return null;
+  },
+});
+
+/** Host moves a player to another team mid-game (team games only). */
+export const setTeam = mutation({
+  args: { gameId: v.id("games"), playerId: v.id("sessionPlayers"), teamNo: v.number() },
+  handler: async (ctx, { gameId, playerId, teamNo }) => {
+    const game = await getGameInSession(ctx, gameId);
+    await requireHost(ctx, game.sessionId);
+    requireActiveGame(game);
+    if (game.templateSnapshot.teamMode !== "team") fail("INVALID_STATE", "This isn't a team game.");
+    if (!Number.isSafeInteger(teamNo) || teamNo < 1 || teamNo > 6) fail("INVALID_STATE", "Pick a team from 1 to 6.");
+    const target = await participantOf(ctx, gameId, playerId);
+    if (!target) fail("NOT_FOUND", "That player isn't in this game.");
+    await ctx.db.patch(target._id, { teamNo });
     return null;
   },
 });
@@ -397,5 +417,32 @@ export const reopen = mutation({
       });
       return null;
     });
+  },
+});
+
+/** Per-player money in and out of one game (live entries only), for the end-game picker and the result screen. */
+export const summary = query({
+  args: { gameId: v.id("games") },
+  handler: async (ctx, { gameId }) => {
+    const game = await getGameInSession(ctx, gameId);
+    await requirePlayer(ctx, game.sessionId);
+    const entries = await ctx.db
+      .query("ledgerEntries")
+      .withIndex("by_game", (q) => q.eq("gameId", gameId))
+      .take(3000);
+    const reversed = new Set(entries.filter((e) => e.type === "REVERSAL").map((e) => e.reversesEntryId as string));
+    const putIn: Record<string, number> = {};
+    const won: Record<string, number> = {};
+    let betCount = 0;
+    for (const e of entries) {
+      if (e.type === "REVERSAL" || reversed.has(e._id)) continue;
+      if (e.type === "BOOT" || e.type === "BET") {
+        putIn[e.fromPlayerId!] = (putIn[e.fromPlayerId!] ?? 0) + e.amount;
+        if (e.type === "BET") betCount++;
+      } else if (e.type === "PAYOUT") {
+        won[e.toPlayerId!] = (won[e.toPlayerId!] ?? 0) + e.amount;
+      }
+    }
+    return { putIn, won, betCount };
   },
 });

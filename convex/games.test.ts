@@ -210,6 +210,68 @@ describe("betting", () => {
   });
 });
 
+describe("host controls in a game", () => {
+  test("host packs for another player, who then can't bet; turn moves on", async () => {
+    const t = setup();
+    const s = await table(t, ["Arjun", "Priya", "Rahul"]);
+    const { gameId } = await startGame(t, s, "Teen Patti", ["Arjun", "Priya", "Rahul"]);
+    await expectError(
+      s.seats.Priya.as.mutation(api.games.pack, { gameId, playerId: s.seats.Rahul.playerId }),
+      "NOT_HOST",
+    );
+    await s.host.as.mutation(api.games.pack, { gameId, playerId: s.seats.Arjun.playerId }); // Arjun's own turn
+    expect((await getGame(t, gameId)).currentTurnPlayerId).toBe(s.seats.Priya.playerId);
+    await s.host.as.mutation(api.games.pack, { gameId, playerId: s.seats.Rahul.playerId }); // not Rahul's turn, host may
+    expect((await getGame(t, gameId)).currentTurnPlayerId).toBe(s.seats.Priya.playerId);
+    await expectError(bet(s.seats.Rahul, gameId, 10), "INVALID_STATE", /packed/);
+    const events = await s.host.as.query(api.sessions.gameEvents, { sessionId: s.sessionId, gameId });
+    expect(events.every((e) => e.byPlayerId === s.host.playerId)).toBe(true);
+    await checkInvariants(t, s.sessionId);
+  });
+
+  test("host changes a team mid-game, nobody else can", async () => {
+    const t = setup();
+    const s = await table(t, ["A", "B", "C", "D"]);
+    const { gameId } = await startGame(t, s, "Sequence", ["A", "B", "C", "D"], [1, 2, 1, 2]);
+    await expectError(s.seats.B.as.mutation(api.games.setTeam, { gameId, playerId: s.seats.B.playerId, teamNo: 1 }), "NOT_HOST");
+    await s.host.as.mutation(api.games.setTeam, { gameId, playerId: s.seats.B.playerId, teamNo: 1 });
+    await expectError(s.host.as.mutation(api.games.setTeam, { gameId, playerId: s.seats.B.playerId, teamNo: 0 }), "INVALID_STATE");
+    const state = await s.host.as.query(api.sessions.state, { sessionId: s.sessionId });
+    expect(state.latestGame?.participants.find((p) => p.sessionPlayerId === s.seats.B.playerId)?.teamNo).toBe(1);
+    // A solo game has no teams.
+    await s.host.as.mutation(api.games.cancel, { gameId, idempotencyKey: key() });
+    const solo = (await startGame(t, s, "Teen Patti", ["A", "B"])).gameId;
+    await expectError(s.host.as.mutation(api.games.setTeam, { gameId: solo, playerId: s.seats.B.playerId, teamNo: 1 }), "INVALID_STATE");
+  });
+
+  test("summary: what each player put in and won, ignoring undone entries", async () => {
+    const t = setup();
+    const s = await table(t, ["Arjun", "Priya"]);
+    const { gameId } = await startGame(t, s, "Teen Patti", ["Arjun", "Priya"]);
+    const a = await bet(s.seats.Arjun, gameId, 50);
+    await bet(s.seats.Priya, gameId, 70);
+    await s.host.as.mutation(api.host.undo, { entryId: a.entryId, idempotencyKey: key() });
+    let sum = await s.host.as.query(api.games.summary, { gameId });
+    expect(sum).toEqual({ putIn: { [s.host.playerId]: 10, [s.seats.Priya.playerId]: 80 }, won: {}, betCount: 1 });
+    await s.host.as.mutation(api.games.endSolo, { gameId, winnerPlayerId: s.seats.Priya.playerId, idempotencyKey: key() });
+    sum = await s.host.as.query(api.games.summary, { gameId });
+    expect(sum.won).toEqual({ [s.seats.Priya.playerId]: 90 });
+  });
+
+  test("undo log lists every undo with who, what and why", async () => {
+    const t = setup();
+    const s = await table(t, ["Arjun", "Priya"]);
+    const { gameId } = await startGame(t, s, "Teen Patti", ["Arjun", "Priya"]);
+    const a = await bet(s.seats.Arjun, gameId, 50);
+    await s.host.as.mutation(api.host.undo, { entryId: a.entryId, idempotencyKey: key() });
+    await s.host.as.mutation(api.games.cancel, { gameId, idempotencyKey: key() });
+    const log = await s.seats.Priya.as.query(api.report.undoLog, { sessionId: s.sessionId });
+    expect(log).toHaveLength(3); // the undone bet, then both boots refunded by the cancel
+    expect(log.find((r) => r.reason === null)).toMatchObject({ type: "BET", amount: 50, playerName: "Arjun", byName: "Arjun" });
+    expect(log.filter((r) => r.reason === "game_cancelled")).toHaveLength(2);
+  });
+});
+
 describe("end game", () => {
   test("solo: one PAYOUT of the whole pool, pool ends at 0", async () => {
     const t = setup();
