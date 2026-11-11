@@ -2,6 +2,25 @@
 
 Branch `monopoly`. Nothing here is deployed to production. The README gets its Monopoly section in milestone 6.
 
+## Milestone 6 status
+
+Net-worth leaderboard (Ranks tab), pause and resume, the table display, a Convex-level randomized test and the three-player
+Playwright test are done. The README has the feature flag, board editor and preset verification notes.
+
+- **Ranks:** cash + property price (mortgaged at its mortgage value) + buildings at cost, with a split bar. Out players sit
+  below, with their finishing place.
+- **Pause / resume:** `mono.pause` / `mono.resume` (host). A paused game takes no moves, even for days; the host can still undo,
+  cancel or end it. Pausing is refused while an auction runs, since its countdown can't be frozen. Requests that expire
+  meanwhile stay expired.
+- **Table display:** `monoDisplay.view` (keyed by room code, like the card-game display) and `components/mono/MonoTV.tsx`:
+  the real board order as a ring, owner fill, mortgage hatch, building pips, the Free Parking pot, the live auction, players
+  with cash and the feed. The page picks it by session type. The stage is centred with its own wrapper; the card-game display
+  uses a different centring that is offset on windows narrower than 1280 px, which I left alone.
+- **Tests:** `convex/mono.random.test.ts` drives the real mutations for 1,000+ accepted operations (payments, rent, buying,
+  building, trades, auctions, cards, jail, bankruptcy, pause, host undos) and replays the event log after every 25.
+  `e2e/monopoly.spec.ts`: three phones play rent, a trade, ranks, pause, the display, two bankruptcies, the ₹100 / −₹50
+  payout and the report.
+
 ## Milestone 5 status
 
 Raise money, bankruptcy, finishing places, game over, the stakes payout into the existing report and settle-up, and

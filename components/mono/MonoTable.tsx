@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AuctionSheet } from "@/components/mono/AuctionSheet";
 import { MonoBoardTab, MyDeeds } from "@/components/mono/MonoBoardTab";
+import { MonoRanks } from "@/components/mono/MonoRanks";
 import { CardsSheet, JailSheet } from "@/components/mono/MonoCards";
 import { BankruptcySheet, EndGameSheet, RaiseMoneySheet } from "@/components/mono/MonoEnd";
 import { useRaise } from "@/components/mono/raiseStore";
@@ -21,7 +22,7 @@ import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
 import { gameIsOver } from "@/lib/monopoly/engine";
 import { ordinal } from "@/lib/monopoly/money";
 
-type Tab = "me" | "board" | "bank" | "feed";
+type Tab = "me" | "board" | "ranks" | "bank" | "feed";
 type SheetKind = "go" | "pay" | "request" | "bankIn" | "bankOut" | "trade" | "card" | "jail" | null;
 
 function minutesLeft(r: MonoRequest, now: number) {
@@ -161,7 +162,16 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
         </div>
       </div>
 
-      {paused && <div className="mx-4 mt-3 rounded-[16px] border border-line-gold bg-surface p-3.5 text-sm font-bold">The game is paused. Nothing can be moved until the host resumes it.</div>}
+      {paused && (
+        <div className="mx-4 mt-3 flex items-center gap-3 rounded-[16px] border border-line-gold bg-surface p-3.5">
+          <div className="flex-1 text-sm font-bold">The game is paused. Nothing can be moved until the host resumes it.</div>
+          {isHost && (
+            <button disabled={actions.pending} onClick={() => actions.resume()} className="gold-btn press h-10 flex-none rounded-xl px-4 text-[13px]">
+              Resume
+            </button>
+          )}
+        </div>
+      )}
 
       {tab === "me" && (
         <>
@@ -311,6 +321,8 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
 
       {tab === "board" && <MonoBoardTab game={game} me={me} onOpen={openSpace} />}
 
+      {tab === "ranks" && <MonoRanks game={game} me={me} />}
+
       {tab === "bank" && (
         <>
           <div className="px-5 pt-5">
@@ -387,6 +399,15 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
 
           {isHost && (
             <div className="mx-4 mt-8 grid gap-2.5 text-center">
+              {game.status === "active" ? (
+                <button disabled={actions.pending} onClick={() => actions.pause()} className="press h-12 rounded-xl border border-line text-[14px] font-bold">
+                  Pause the game
+                </button>
+              ) : (
+                <button disabled={actions.pending} onClick={() => actions.resume()} className="gold-btn press h-12 rounded-xl text-[14px]">
+                  Resume the game
+                </button>
+              )}
               {gameIsOver(gs) ? (
                 <button disabled={actions.pending} onClick={() => actions.finishGame()} className="gold-btn press h-12 rounded-xl text-[14px]">
                   Finish the game
@@ -415,11 +436,12 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
       )}
 
       <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-line bg-surface" style={{ paddingBottom: "max(10px, env(safe-area-inset-bottom))" }} aria-label="Game sections">
-        <div className="mx-auto grid max-w-[520px]" style={{ gridTemplateColumns: `repeat(${game.settings.trackProperties ? 4 : 3}, minmax(0, 1fr))` }}>
+        <div className="mx-auto grid max-w-[520px]" style={{ gridTemplateColumns: `repeat(${game.settings.trackProperties ? 5 : 4}, minmax(0, 1fr))` }}>
           {(
             [
               ["me", "Me"],
               ...(game.settings.trackProperties ? ([["board", "Board"]] as const) : []),
+              ["ranks", "Ranks"],
               ["bank", "Bank"],
               ["feed", "Feed"],
             ] as const
