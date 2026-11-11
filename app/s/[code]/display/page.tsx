@@ -2,6 +2,9 @@
 
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { MonoTV } from "@/components/mono/MonoTV";
+import { MonoUnavailable } from "@/components/mono/MonoSession";
+import { MONOPOLY_ENABLED } from "@/lib/flags";
 import { avatarColor, initials } from "@/lib/avatar";
 import { api } from "@/convex/_generated/api";
 import { useAuthedQuery } from "@/hooks/useAuthedQuery";
@@ -32,7 +35,10 @@ const mmss = (ms: number) => {
 export default function DisplayPage() {
   const params = useParams<{ code: string }>();
   const code = normalizeCode(params.code ?? "");
-  const d = useAuthedQuery(api.display.view, { code });
+  // A property game has its own display; wait to know which kind this is before loading the card-game one.
+  const info = useAuthedQuery(api.sessions.joinInfo, { code });
+  const isMono = info?.type === "monopoly";
+  const d = useAuthedQuery(api.display.view, info === undefined || isMono ? "skip" : { code });
   const now = useNow(1000);
   const scale = useFit();
 
@@ -44,6 +50,18 @@ export default function DisplayPage() {
     return { x: 410 + 320 * Math.cos(t), y: 300 + 215 * Math.sin(t) };
   };
   const turn = d?.players.find((p) => p.id === d.game?.turnId);
+
+  if (isMono && !MONOPOLY_ENABLED) return <MonoUnavailable />;
+  if (isMono) {
+    // Centred on the screen whatever its size: the 1280×720 stage is pinned to the middle, then scaled to fit.
+    return (
+      <div className="room relative overflow-hidden text-ink" style={{ height: "100dvh" }}>
+        <div style={{ position: "absolute", left: "50%", top: "50%", width: W, height: H, transform: `translate(-50%, -50%) scale(${scale})` }}>
+          <MonoTV code={code} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="room grid min-h-dvh place-items-center overflow-hidden text-ink" style={{ height: "100dvh" }}>

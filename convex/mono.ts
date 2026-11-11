@@ -1292,3 +1292,35 @@ export const clearShort = mutation({
     return null;
   },
 });
+
+/**
+ * The host pauses the game: nothing can be moved until it resumes, even for days. A running auction has to finish first,
+ * since its countdown can't be frozen.
+ */
+export const pause = mutation({
+  args: { gameId: v.id("mGames") },
+  handler: async (ctx, { gameId }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game) fail("NOT_FOUND", "Game not found.");
+    await requireHost(ctx, game.sessionId);
+    if (game.status === "paused") return null;
+    if (game.status !== "active") fail("INVALID_STATE", "That game isn't in progress.");
+    if (await openAuctionOf(ctx, gameId)) fail("INVALID_STATE", "Finish or stop the running auction before pausing.");
+    await ctx.db.patch(gameId, { status: "paused", pausedAt: Date.now() });
+    return null;
+  },
+});
+
+/** Picks the game up where it was. Requests that expired meanwhile stay expired. */
+export const resume = mutation({
+  args: { gameId: v.id("mGames") },
+  handler: async (ctx, { gameId }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game) fail("NOT_FOUND", "Game not found.");
+    await requireHost(ctx, game.sessionId);
+    if (game.status === "active") return null;
+    if (game.status !== "paused") fail("INVALID_STATE", "That game isn't paused.");
+    await ctx.db.patch(gameId, { status: "active", pausedAt: undefined });
+    return null;
+  },
+});

@@ -1558,3 +1558,124 @@ describe("property-game stats and the report", () => {
     expect((await p.host.as.query(api.report.full, { sessionId: p.sessionId })).mono).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Milestone 6: pause and resume, the table display
+// ---------------------------------------------------------------------------------------------
+
+describe("pause and resume", () => {
+  test("a paused game takes no moves until the host resumes it, however long it waits", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await perform(s, "Priya", { kind: "bankCollect", amount: 100 });
+    await expectError(s.seats.Priya.as.mutation(api.mono.pause, { gameId: s.gameId }), "NOT_HOST");
+    await s.host.as.mutation(api.mono.pause, { gameId: s.gameId });
+    expect((await gameOf(t, s)).status).toBe("paused");
+    expect((await gameOf(t, s)).pausedAt).toBeDefined();
+    await expectError(perform(s, "Priya", { kind: "passGo" }), "INVALID_STATE", /paused/);
+    await expectError(s.seats.Arjun.as.mutation(api.mono.endTurn, { gameId: s.gameId }), "INVALID_STATE", /paused/);
+    await expectError(buy(s, "Priya", "Market Sq"), "INVALID_STATE", /paused/);
+    // A day later: still paused, state intact.
+    expect((await cashOf(t, s)).Priya).toBe(1600);
+    await expectError(s.seats.Priya.as.mutation(api.mono.resume, { gameId: s.gameId }), "NOT_HOST");
+    await s.host.as.mutation(api.mono.resume, { gameId: s.gameId });
+    await perform(s, "Priya", { kind: "passGo" });
+    expect((await cashOf(t, s)).Priya).toBe(1800);
+    await check(t, s);
+  });
+
+  test("the host can undo and cancel while paused; pausing twice or resuming a running game is harmless", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"], { settings: { buyIn: 100, split: [100] } });
+    await perform(s, "Priya", { kind: "bankCollect", amount: 50 });
+    await s.host.as.mutation(api.mono.pause, { gameId: s.gameId });
+    await s.host.as.mutation(api.mono.pause, { gameId: s.gameId });
+    const group = (await stateOf(s)).events[0].groupId;
+    await s.host.as.mutation(api.mono.undo, { gameId: s.gameId, groupId: group, idempotencyKey: key() });
+    expect((await cashOf(t, s)).Priya).toBe(1500);
+    await s.host.as.mutation(api.mono.resume, { gameId: s.gameId });
+    await s.host.as.mutation(api.mono.resume, { gameId: s.gameId });
+    await s.host.as.mutation(api.mono.pause, { gameId: s.gameId });
+    await s.host.as.mutation(api.mono.cancelGame, { gameId: s.gameId, idempotencyKey: key() });
+    expect((await gameOf(t, s)).status).toBe("cancelled");
+    expect((await netsOf(s)).byName).toEqual({ Arjun: 0, Priya: 0 });
+  });
+
+  test("a running auction has to finish before the game can be paused", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await s.seats.Arjun.as.mutation(api.mono.startAuction, { gameId: s.gameId, spaceId: sp("Market Sq"), idempotencyKey: key() });
+    await expectError(s.host.as.mutation(api.mono.pause, { gameId: s.gameId }), "INVALID_STATE", /auction/);
+  });
+
+  test("a paused game can still be ended early and paid out", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"], { settings: { buyIn: 100, split: [100] } });
+    await s.host.as.mutation(api.mono.pause, { gameId: s.gameId });
+    await s.host.as.mutation(api.mono.endGameEarly, { gameId: s.gameId, order: [id(s, "Priya"), id(s, "Arjun")], idempotencyKey: key() });
+    expect((await netsOf(s)).byName).toEqual({ Arjun: -100, Priya: 100 });
+  });
+});
+
+describe("table display", () => {
+  const view = (s: Table) => s.host.as.query(api.monoDisplay.view, { code: s.code });
+
+  test("shows the public table: players, cash, deeds, buildings, pot, stock and the feed", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"], { settings: { freeParkingPot: true } });
+    await ownSet(s, "Priya");
+    await perform(s, "Priya", { kind: "build", spaceId: sp("Market Sq") });
+    await perform(s, "Meera", { kind: "bankPay", amount: 200, reason: "tax" });
+    await perform(s, "Arjun", { kind: "goToJail" });
+    const d = (await view(s))!;
+    expect(d.game!.players.map((p) => [p.name, p.inJail, p.bankrupt])).toEqual([["Arjun", true, false], ["Priya", false, false], ["Meera", false, false]]);
+    expect(d.game).toMatchObject({ pot: 200, freeParkingPot: true, bankHouses: 31, bankHotels: 12, status: "active", trackProperties: true });
+    expect(d.game!.board.spaces).toHaveLength(40);
+    expect(d.game!.props.find((p) => p.spaceId === sp("Market Sq"))).toMatchObject({ houses: 1, owner: id(s, "Priya") });
+    expect(d.feed![0].label).toBe("Arjun went to jail");
+    expect(d.feed!.map((f) => f.label)).toContain("Priya built on Market Sq");
+  });
+
+  test("an undone move is marked in the feed; turn changes are left out; a paused game shows as paused", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await perform(s, "Priya", { kind: "bankCollect", amount: 50 });
+    await s.seats.Arjun.as.mutation(api.mono.endTurn, { gameId: s.gameId });
+    await s.host.as.mutation(api.mono.undo, { gameId: s.gameId, groupId: (await stateOf(s)).events.find((e) => e.type === "PAY" && !e.reversesGroupId)!.groupId, idempotencyKey: key() });
+    await s.host.as.mutation(api.mono.pause, { gameId: s.gameId });
+    const d = (await view(s))!;
+    expect(d.feed!.some((f) => /ended their turn/.test(f.label))).toBe(false);
+    expect(d.feed!.filter((f) => f.undone)).toHaveLength(1);
+    expect(d.game!.status).toBe("paused");
+  });
+
+  test("shows the live auction and, when over, the standings; works from any device with the code", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    const { auctionId } = await s.seats.Arjun.as.mutation(api.mono.startAuction, { gameId: s.gameId, spaceId: sp("Market Sq"), idempotencyKey: key() });
+    await s.seats.Priya.as.mutation(api.mono.bid, { auctionId, amount: 75, idempotencyKey: key() });
+    const tv = await newDevice(t); // the TV has no seat
+    const d = (await tv.query(api.monoDisplay.view, { code: s.code }))!;
+    expect(d.game!.auction).toMatchObject({ spaceId: sp("Market Sq"), highestBid: 75, bidder: "Priya" });
+    await s.host.as.mutation(api.mono.cancelAuction, { auctionId });
+    await bankrupt(s, "Arjun", "Priya");
+    const over = (await tv.query(api.monoDisplay.view, { code: s.code }))!;
+    expect(over.game).toMatchObject({ status: "ended" });
+    expect(over.game!.players.map((p) => [p.name, p.position])).toEqual([["Arjun", 2], ["Priya", 1]]);
+  });
+
+  test("is only for property games, and shows a waiting screen before the game starts", async () => {
+    const t = setup();
+    const pool = await table(t, ["Arjun", "Priya"]);
+    expect(await pool.host.as.query(api.monoDisplay.view, { code: pool.code })).toBeNull();
+    const s = await monoTable(t, ["Zed", "Yan"], { start: false });
+    expect(await view(s)).toMatchObject({ game: null });
+  });
+
+  test("the pool display is unchanged", async () => {
+    const t = setup();
+    const pool = await table(t, ["Arjun", "Priya"]);
+    const d = await pool.host.as.query(api.display.view, { code: pool.code });
+    expect(d!.players.map((p) => p.name)).toEqual(["Arjun", "Priya"]);
+  });
+});

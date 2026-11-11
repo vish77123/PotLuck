@@ -135,6 +135,8 @@ export function useMonoActions(game: MonoGame) {
     [convex, game._id, run],
   );
 
+  const pause = useCallback(() => run(() => convex.mutation(api.mono.pause, { gameId: game._id })), [convex, game._id, run]);
+  const resume = useCallback(() => run(() => convex.mutation(api.mono.resume, { gameId: game._id })), [convex, game._id, run]);
   const finishGame = useCallback(() => run(() => convex.mutation(api.mono.finishGame, { gameId: game._id, idempotencyKey: newKey() })), [convex, game._id, run]);
   const reopenGame = useCallback(() => run(() => convex.mutation(api.mono.reopenGame, { gameId: game._id, idempotencyKey: newKey() })), [convex, game._id, run]);
   const clearShort = useCallback(() => run(() => convex.mutation(api.mono.clearShort, { gameId: game._id })), [convex, game._id, run]);
@@ -145,5 +147,5 @@ export function useMonoActions(game: MonoGame) {
   );
   const setBanker = useCallback((playerId: Id<"mPlayers">) => run(() => convex.mutation(api.mono.setBanker, { gameId: game._id, playerId })), [convex, game._id, run]);
 
-  return { pending, perform, requestPayment, respond, cancelRequest, endTurn, undo, cancelGame, setBanker, proposeTrade, startAuction, bid, cancelAuction, declareBankruptcy, endGameEarly, finishGame, reopenGame, clearShort };
+  return { pending, perform, requestPayment, respond, cancelRequest, endTurn, undo, cancelGame, setBanker, proposeTrade, startAuction, bid, cancelAuction, declareBankruptcy, endGameEarly, finishGame, reopenGame, clearShort, pause, resume };
 }
