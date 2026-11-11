@@ -13,6 +13,8 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useAuthedQuery } from "@/hooks/useAuthedQuery";
 import { useSubmit } from "@/hooks/useSubmit";
 import { newKey } from "@/lib/errors";
+import { MonoUnavailable } from "@/components/mono/MonoSession";
+import { MONOPOLY_ENABLED } from "@/lib/flags";
 import { formatInr, normalizeCode } from "@/lib/format";
 import { useUi } from "@/stores/ui";
 
@@ -79,6 +81,8 @@ export default function JoinPage() {
       </main>
     );
   }
+
+  if (info.type === "monopoly" && !MONOPOLY_ENABLED) return <MonoUnavailable />;
 
   if (info.status === "ended") {
     return (
@@ -177,6 +181,8 @@ export default function JoinPage() {
               </div>
               <AmountStepper label="Buy-in" value={stake} onChange={setBuyIn} step={100} min={10} />
             </div>
+          ) : info.type === "monopoly" ? (
+            <div className="mb-3 text-center text-[13px] font-semibold text-ink2">Property game · play money is dealt when the host starts.</div>
           ) : (
             <div className="mb-3 text-center text-[13px] font-semibold text-ink2">
               {rejoining ? "Welcome back — " : "You’ll start with "}

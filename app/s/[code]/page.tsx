@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { LobbyScreen } from "@/components/lobby/LobbyScreen";
+import { MonoSession, MonoUnavailable } from "@/components/mono/MonoSession";
 import { ResultScreen, awayText, useResult } from "@/components/table/ResultScreen";
 import { TableScreen } from "@/components/table/TableScreen";
 import type { SessionState } from "@/components/lobby/types";
@@ -14,6 +15,7 @@ import { useUi } from "@/stores/ui";
 import { BackButton } from "@/components/ui/controls";
 import { api } from "@/convex/_generated/api";
 import { useAuthedQuery } from "@/hooks/useAuthedQuery";
+import { MONOPOLY_ENABLED } from "@/lib/flags";
 import { normalizeCode } from "@/lib/format";
 
 function Shell({ children }: { children: React.ReactNode }) {
@@ -73,7 +75,9 @@ export default function SessionPage() {
   const code = normalizeCode(params.code ?? "");
   const info = useAuthedQuery(api.sessions.joinInfo, { code });
   const sessionId = info?.myPlayerId ? info.sessionId : undefined;
-  const state = useAuthedQuery(api.sessions.state, sessionId ? { sessionId } : "skip");
+  const isMono = info?.type === "monopoly";
+  const state = useAuthedQuery(api.sessions.state, sessionId && !isMono ? { sessionId } : "skip");
+  const monoState = useAuthedQuery(api.mono.state, sessionId && isMono && MONOPOLY_ENABLED ? { sessionId } : "skip");
 
   const notSeated = info !== undefined && info !== null && !info.myPlayerId;
   useEffect(() => {
@@ -90,7 +94,19 @@ export default function SessionPage() {
       </Shell>
     );
   }
-  if (info === undefined || notSeated || state === undefined) {
+  if (isMono && !MONOPOLY_ENABLED) return <MonoUnavailable />;
+  if (isMono && info?.status === "ended") {
+    return (
+      <Shell>
+        <h1 className="font-display mt-16 text-[34px] font-semibold leading-[1.1]">This session has ended</h1>
+        <Link href={`/s/${code}/report`} className="gold-btn mt-6 grid h-[58px] place-items-center rounded-[18px] text-[16.5px]">
+          See the report
+        </Link>
+      </Shell>
+    );
+  }
+  if (isMono && monoState && !notSeated) return <MonoSession code={code} state={monoState} />;
+  if (info === undefined || notSeated || (isMono ? monoState === undefined : state === undefined)) {
     return (
       <Shell>
         <div className="skeleton mt-5 h-36 rounded-[28px] bg-surface2" aria-busy="true" />
@@ -98,6 +114,7 @@ export default function SessionPage() {
       </Shell>
     );
   }
+  if (!state) return null;
   if (state.session.status === "ended") {
     return (
       <Shell>

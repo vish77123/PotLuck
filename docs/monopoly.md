@@ -2,6 +2,25 @@
 
 Branch `monopoly`. Nothing here is deployed to production. The README gets its Monopoly section in milestone 6.
 
+## Milestone 2 status
+
+The property-game session type works end to end behind the flag: create, join, setup, start, dashboard, bank moves, Pass GO,
+payments and requests, banker mode, activity feed, grouped undo, turn strip. Not yet built: properties on the board,
+trades, auctions, cards, jail UI, bankruptcy, game over, reports, the table display.
+
+- **Convex:** `convex/mono.ts` (functions), `convex/lib/mono.ts` (`applyMonopolyGroup`, `loadGame`, `loadGroups`),
+  `convex/mono.test.ts`. `internal.mono.assertGameInvariants` replays a game's event log and checks it.
+- **Flags:** UI hidden unless `NEXT_PUBLIC_MONOPOLY_ENABLED=true`. The server refuses to create a property session unless
+  the Convex env var `MONOPOLY_ENABLED=true`. Both are set only for local dev (`.env.development.local`, gitignored, and
+  the dev deployment). Neither is set anywhere else.
+- **Pool code touched** (all behaviour-preserving, covered by the existing tests): `seatPlayer` skips a 0 buy-in, `joinInfo`
+  and `mine` return `type`, `games.start` / `wallet.topUp` / `loans.request` refuse property sessions, `sessions.end` and
+  `reorderSeats` know about running property games.
+- **Rules decided:** a player moves their own money with the bank; the host or banker can act for anyone. In banker mode
+  the host acts at once and is the fallback approver for the banker's own moves. Payment requests and approvals expire
+  after 5 minutes. Setup lives in the lobby (one screen), not a separate step before it.
+- **Local testing:** `npx convex dev --once` pushed this branch's functions to the dev deployment. Nothing else was deployed.
+
 ## Milestone 1 status
 
 Done: additive schema, board presets, the pure rules module and engine, stake entries in the ledger, tests.

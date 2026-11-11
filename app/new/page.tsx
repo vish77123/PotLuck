@@ -3,12 +3,13 @@
 import { useConvex } from "convex/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { BackButton, GoldButton, TextField } from "@/components/ui/controls";
+import { BackButton, GoldButton, Segmented, TextField } from "@/components/ui/controls";
 import { NameGrid } from "@/components/ui/NameGrid";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useAuthedQuery } from "@/hooks/useAuthedQuery";
 import { useSubmit } from "@/hooks/useSubmit";
+import { MONOPOLY_ENABLED } from "@/lib/flags";
 import { newKey } from "@/lib/errors";
 import { useUi } from "@/stores/ui";
 
@@ -26,6 +27,8 @@ export default function NewSessionPage() {
   const [memberChoice, setMemberChoice] = useState<string | null>(null);
   const [hostName, setHostName] = useState("");
   const [sessionName, setSessionName] = useState("");
+  const [kind, setKind] = useState<"pool" | "monopoly">("pool");
+  const [preset, setPreset] = useState<"classic" | "business">("classic");
 
   // Default to the most recently used crew, or a brand-new one.
   useEffect(() => {
@@ -50,6 +53,19 @@ export default function NewSessionPage() {
 
   const create = () =>
     run(async () => {
+      if (kind === "monopoly") {
+        const res = await convex.mutation(api.mono.createSession, {
+          crewId: existingCrew ?? undefined,
+          newCrewName: existingCrew ? undefined : crewName,
+          hostMemberId: !typingHost ? (memberChoice as Id<"crewMembers">) : undefined,
+          hostName: typingHost ? hostName : undefined,
+          name: sessionName.trim() || undefined,
+          presetKey: preset,
+          idempotencyKey: newKey(),
+        });
+        router.replace(`/s/${res.code}`);
+        return;
+      }
       const res = await convex.mutation(api.sessions.create, {
         crewId: existingCrew ?? undefined,
         newCrewName: existingCrew ? undefined : crewName,
@@ -75,6 +91,41 @@ export default function NewSessionPage() {
         <h1 className="font-display text-[34px] font-semibold leading-[1.1]">New table</h1>
         <p className="mt-1.5 text-sm text-ink2">You’ll be the host. You can set wallets and games in the lobby.</p>
       </div>
+
+      {MONOPOLY_ENABLED && (
+        <div className="mx-4 mt-5">
+          <Segmented
+            value={kind}
+            onChange={setKind}
+            options={[
+              { value: "pool", label: "Card game" },
+              { value: "monopoly", label: "Property game" },
+            ]}
+            height={44}
+          />
+          {kind === "monopoly" && (
+            <div className="mt-3 grid grid-cols-2 gap-2.5">
+              {(
+                [
+                  ["classic", "Classic", "$ play money"],
+                  ["business", "Business", "₹ notes · Indian cities"],
+                ] as const
+              ).map(([k, title, sub]) => (
+                <button
+                  key={k}
+                  onClick={() => setPreset(k)}
+                  aria-pressed={preset === k}
+                  className="press rounded-[20px] bg-surface p-3.5 text-left"
+                  style={{ border: `2px solid ${preset === k ? "var(--gold)" : "var(--line)"}` }}
+                >
+                  <div className="text-[14.5px] font-extrabold">{title}</div>
+                  <div className="text-[11.5px] font-semibold text-ink3">{sub}</div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {crews === undefined ? (
         <div className="skeleton mx-4 mt-6 h-24 rounded-[20px] bg-surface2" aria-busy="true" />
@@ -137,7 +188,7 @@ export default function NewSessionPage() {
       <div className="fixed inset-x-0 bottom-0 z-10" style={{ background: "linear-gradient(transparent, var(--bg) 35%)" }}>
         <div className="mx-auto max-w-[520px] px-4 pt-[18px]" style={{ paddingBottom: "max(30px, env(safe-area-inset-bottom))" }}>
           <GoldButton disabled={!ready} pending={pending} onClick={create}>
-            Create session
+            {kind === "monopoly" ? "Create property game" : "Create session"}
           </GoldButton>
         </div>
       </div>

@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { getPlayerInSession, requireActivePlayer, requirePlayer } from "./lib/access";
+import { getPlayerInSession, requireActivePlayer, requirePlayer, requirePoolSession } from "./lib/access";
 import { fail } from "./lib/errors";
 import { activeGameOf, participantOf } from "./lib/game";
 import { applyEntry, getWallet, withIdempotency } from "./lib/ledger";
@@ -10,7 +10,8 @@ import { assertAmount } from "./lib/validators";
 export const topUp = mutation({
   args: { sessionId: v.id("sessions"), amount: v.number(), idempotencyKey: v.string() },
   handler: async (ctx, { sessionId, amount, idempotencyKey }) => {
-    const { userId, player } = await requireActivePlayer(ctx, sessionId);
+    const { userId, session, player } = await requireActivePlayer(ctx, sessionId);
+    requirePoolSession(session);
     return await withIdempotency(ctx, userId, idempotencyKey, async () => {
       assertAmount(amount, "Top-up");
       const entry = await applyEntry(ctx, {

@@ -336,6 +336,8 @@ export default defineSchema({
     gameNo: v.number(),
     boardSnapshot: boardV,
     settings: monoSettingsV,
+    // Chosen in setup, before mPlayers exist; resolved to settings.bankerPlayerId when the game starts.
+    bankerSessionPlayerId: v.optional(v.id("sessionPlayers")),
     status: monoGameStatus,
     currentTurnPlayerId: v.optional(v.id("mPlayers")),
     turnNo: v.number(),

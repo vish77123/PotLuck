@@ -1,4 +1,4 @@
-import { ConvexError } from "convex/values";
+import { ConvexError, type Value } from "convex/values";
 
 export type ErrorCode =
   | "UNAUTHENTICATED"
@@ -15,9 +15,14 @@ export type ErrorCode =
   | "ALREADY_REVERSED"
   | "NOT_UNDOABLE"
   | "NAME_TAKEN"
-  | "IDEMPOTENCY_CONFLICT";
+  | "IDEMPOTENCY_CONFLICT"
+  | "NEEDS_CONFIRM"
+  | "WRONG_SESSION_TYPE";
 
-/** Every user-facing failure is a ConvexError carrying a code and a sentence the UI shows as-is. */
-export function fail(code: ErrorCode, message: string): never {
-  throw new ConvexError({ code, message });
+/**
+ * Every user-facing failure is a ConvexError carrying a code and a sentence the UI shows as-is.
+ * `detail` carries structured data for the UI (e.g. who is short of cash and by how much).
+ */
+export function fail(code: ErrorCode, message: string, detail?: Record<string, Value>): never {
+  throw new ConvexError(detail ? { code, message, detail } : { code, message });
 }
