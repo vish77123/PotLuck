@@ -12,6 +12,8 @@ export type PlayerNetRow = {
   buyIn: number;
   topUps: number;
   cashOut: number;
+  /** Monopoly stakes: payouts − buy-ins, net of undone entries. Always 0 in a pool session. */
+  stakes: number;
   borrowedOutstanding: number;
   lentOutstanding: number;
   net: number;
@@ -27,7 +29,7 @@ async function entriesOfType(ctx: Ctx, sessionId: Id<"sessions">, type: Doc<"led
 /**
  * net = final wallet (+ cash-outs) − buy-in − top-ups − outstanding borrowed + outstanding lent.
  * Loans settled outside the app are excluded. Reads only buy-in/top-up/cash-out/reversal entries,
- * never the bet stream.
+ * never the bet stream. A Monopoly session adds its real-₹ stakes: + payouts − buy-ins.
  */
 export async function computeNets(ctx: Ctx, sessionId: Id<"sessions">): Promise<PlayerNetRow[]> {
   const players = await ctx.db
@@ -42,11 +44,13 @@ export async function computeNets(ctx: Ctx, sessionId: Id<"sessions">): Promise<
     .query("loans")
     .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
     .collect();
-  const [buyIns, topUps, cashOuts, reversals] = await Promise.all([
+  const [buyIns, topUps, cashOuts, reversals, monoBuyIns, monoPayouts] = await Promise.all([
     entriesOfType(ctx, sessionId, "BUY_IN"),
     entriesOfType(ctx, sessionId, "TOP_UP"),
     entriesOfType(ctx, sessionId, "CASH_OUT"),
     entriesOfType(ctx, sessionId, "REVERSAL"),
+    entriesOfType(ctx, sessionId, "MONO_BUY_IN"),
+    entriesOfType(ctx, sessionId, "MONO_PAYOUT"),
   ]);
 
   const rows = new Map<Id<"sessionPlayers">, PlayerNetRow>();
@@ -60,6 +64,7 @@ export async function computeNets(ctx: Ctx, sessionId: Id<"sessions">): Promise<
       buyIn: 0,
       topUps: 0,
       cashOut: 0,
+      stakes: 0,
       borrowedOutstanding: 0,
       lentOutstanding: 0,
       net: 0,
@@ -68,9 +73,14 @@ export async function computeNets(ctx: Ctx, sessionId: Id<"sessions">): Promise<
   for (const e of buyIns) rows.get(e.toPlayerId!)!.buyIn += e.amount;
   for (const e of topUps) rows.get(e.toPlayerId!)!.topUps += e.amount;
   for (const e of cashOuts) rows.get(e.fromPlayerId!)!.cashOut += e.amount;
+  for (const e of monoBuyIns) rows.get(e.fromPlayerId!)!.stakes -= e.amount;
+  for (const e of monoPayouts) rows.get(e.toPlayerId!)!.stakes += e.amount;
   for (const e of reversals) {
     if (e.reversesType === "BUY_IN") rows.get(e.fromPlayerId!)!.buyIn -= e.amount;
     if (e.reversesType === "TOP_UP") rows.get(e.fromPlayerId!)!.topUps -= e.amount;
+    // A reversed stake runs the other way: an undone buy-in goes back to the player, an undone payout comes off.
+    if (e.reversesType === "MONO_BUY_IN") rows.get(e.toPlayerId!)!.stakes += e.amount;
+    if (e.reversesType === "MONO_PAYOUT") rows.get(e.fromPlayerId!)!.stakes -= e.amount;
   }
   for (const l of loans) {
     if (l.status !== "open") continue;
@@ -79,7 +89,7 @@ export async function computeNets(ctx: Ctx, sessionId: Id<"sessions">): Promise<
     rows.get(l.lenderPlayerId)!.lentOutstanding += outstanding;
   }
   for (const r of rows.values()) {
-    r.net = r.wallet + r.cashOut - r.buyIn - r.topUps - r.borrowedOutstanding + r.lentOutstanding;
+    r.net = r.wallet + r.cashOut - r.buyIn - r.topUps - r.borrowedOutstanding + r.lentOutstanding + r.stakes;
   }
   return [...rows.values()];
 }

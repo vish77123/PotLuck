@@ -12,6 +12,84 @@ export const entryType = v.union(
   v.literal("LOAN_REPAYMENT"),
   v.literal("CASH_OUT"),
   v.literal("REVERSAL"),
+  // Real-₹ stakes of a Monopoly game. Ledger-only: they never move a wallet or a pool.
+  v.literal("MONO_BUY_IN"),
+  v.literal("MONO_PAYOUT"),
+);
+
+export const sessionType = v.union(v.literal("pool"), v.literal("monopoly"));
+
+// ---- Monopoly board and rule data. Mirrors lib/monopoly/types.ts (checked by convex/monopoly.schema.test.ts). ----
+export const spaceKind = v.union(
+  v.literal("go"),
+  v.literal("property"),
+  v.literal("rail"),
+  v.literal("utility"),
+  v.literal("tax"),
+  v.literal("card"),
+  v.literal("jail"),
+  v.literal("parking"),
+  v.literal("gotojail"),
+);
+
+export const colourGroup = v.union(
+  v.literal("brown"),
+  v.literal("lblue"),
+  v.literal("pink"),
+  v.literal("orange"),
+  v.literal("red"),
+  v.literal("yellow"),
+  v.literal("green"),
+  v.literal("dblue"),
+);
+
+export const spaceV = v.object({
+  id: v.string(),
+  name: v.string(),
+  kind: spaceKind,
+  group: v.optional(colourGroup),
+  price: v.optional(v.number()),
+  // property: [base, 1 house .. 4 houses, hotel]; rail: rent by number owned [1, 2, 3, 4]
+  rent: v.optional(v.array(v.number())),
+  houseCost: v.optional(v.number()),
+  mortgage: v.optional(v.number()),
+  amount: v.optional(v.number()),
+  verified: v.optional(v.boolean()),
+});
+
+export const boardV = v.object({
+  key: v.string(),
+  name: v.string(),
+  currency: v.union(v.literal("$"), v.literal("₹")),
+  spaces: v.array(spaceV),
+  passGo: v.number(),
+  jailFine: v.number(),
+  startingCash: v.number(),
+  jailCards: v.number(),
+  houses: v.number(),
+  hotels: v.number(),
+  utilityMultipliers: v.array(v.number()),
+  verified: v.optional(v.boolean()),
+});
+
+export const monoSettingsV = v.object({
+  trackProperties: v.boolean(),
+  bankerMode: v.union(v.literal("selfService"), v.literal("bankerApproves")),
+  bankerPlayerId: v.optional(v.id("mPlayers")),
+  freeParkingPot: v.boolean(),
+  doubleOnGo: v.boolean(),
+  auctions: v.boolean(),
+  evenBuilding: v.boolean(),
+  // Real ₹ stakes: buy-in per player and the payout split by finishing position (percentages, total 100).
+  stakes: v.object({ buyIn: v.number(), split: v.array(v.number()) }),
+});
+
+export const monoGameStatus = v.union(
+  v.literal("setup"),
+  v.literal("active"),
+  v.literal("paused"),
+  v.literal("ended"),
+  v.literal("cancelled"),
 );
 
 export const turnMode = v.union(v.literal("turn_based"), v.literal("free_form"));
@@ -71,6 +149,8 @@ export default defineSchema({
     name: v.optional(v.string()),
     code: v.string(),
     status: v.union(v.literal("lobby"), v.literal("active"), v.literal("ended")),
+    // Missing = a pool session (every session created before Monopoly existed).
+    type: v.optional(sessionType),
     walletMode,
     startingAmount: v.number(),
     theme: moneyTheme,
@@ -169,6 +249,9 @@ export default defineSchema({
   ledgerEntries: defineTable({
     sessionId: v.id("sessions"),
     gameId: v.optional(v.id("games")),
+    // Set on MONO_BUY_IN / MONO_PAYOUT entries (and their reversals). Deliberately not indexed: ledgerEntries is
+    // a large live table, so stake entries are found through by_session_type and filtered in code.
+    mGameId: v.optional(v.id("mGames")),
     loanId: v.optional(v.id("loans")),
     seq: v.number(),
     type: entryType,
@@ -235,4 +318,143 @@ export default defineSchema({
     .index("by_crew", ["crewId", "endedAt"])
     .index("by_member", ["crewMemberId", "endedAt"])
     .index("by_session", ["sessionId"]),
+
+  // ---------------------------------------------------------------------------------------------
+  // Monopoly sessions. All new tables; nothing above is read or written by pool sessions.
+  // ---------------------------------------------------------------------------------------------
+
+  // A crew's editable copy of a board preset. Each game snapshots it at start.
+  boardConfigs: defineTable({
+    crewId: v.id("crews"),
+    presetKey: v.string(),
+    board: boardV,
+    updatedAt: v.number(),
+  }).index("by_crew", ["crewId"]),
+
+  mGames: defineTable({
+    sessionId: v.id("sessions"),
+    gameNo: v.number(),
+    boardSnapshot: boardV,
+    settings: monoSettingsV,
+    status: monoGameStatus,
+    currentTurnPlayerId: v.optional(v.id("mPlayers")),
+    turnNo: v.number(),
+    freeParkingPot: v.number(),
+    bankHouses: v.number(),
+    bankHotels: v.number(),
+    nextGroupNo: v.number(),
+    startedAt: v.optional(v.number()),
+    pausedAt: v.optional(v.number()),
+    endedAt: v.optional(v.number()),
+  })
+    .index("by_session", ["sessionId", "gameNo"])
+    .index("by_session_status", ["sessionId", "status"]),
+
+  mPlayers: defineTable({
+    gameId: v.id("mGames"),
+    sessionId: v.id("sessions"),
+    sessionPlayerId: v.id("sessionPlayers"),
+    seatOrder: v.number(),
+    cash: v.number(),
+    inJail: v.boolean(),
+    jailTurns: v.number(),
+    jailCards: v.number(),
+    status: v.union(v.literal("playing"), v.literal("bankrupt")),
+    finishPosition: v.optional(v.number()),
+    lastPassGoTurn: v.optional(v.number()),
+  })
+    .index("by_game", ["gameId", "seatOrder"])
+    .index("by_game_player", ["gameId", "sessionPlayerId"]),
+
+  // One row per ownable space, created when a game with trackProperties starts.
+  mPropertyStates: defineTable({
+    gameId: v.id("mGames"),
+    spaceId: v.string(),
+    ownerPlayerId: v.union(v.id("mPlayers"), v.null()),
+    houses: v.number(),
+    hotel: v.boolean(),
+    mortgaged: v.boolean(),
+  }).index("by_game_space", ["gameId", "spaceId"]),
+
+  // Append-only. A "group" is one user action (a trade, a bankruptcy, one payment). Parties are an mPlayers id,
+  // "bank" or "pot".
+  mEvents: defineTable({
+    sessionId: v.id("sessions"),
+    gameId: v.id("mGames"),
+    groupId: v.string(),
+    groupNo: v.number(),
+    type: v.string(),
+    fromParty: v.optional(v.string()),
+    toParty: v.optional(v.string()),
+    amount: v.optional(v.number()),
+    spaceId: v.optional(v.string()),
+    meta: v.optional(v.any()),
+    label: v.optional(v.string()),
+    createdBy: v.id("sessionPlayers"),
+    createdAt: v.number(),
+    idempotencyKey: v.optional(v.string()),
+    reversesGroupId: v.optional(v.string()),
+  })
+    .index("by_game_group", ["gameId", "groupNo"])
+    .index("by_group", ["groupId"])
+    .index("by_reverses", ["reversesGroupId"]),
+
+  // Payment requests, trade offers and banker approvals.
+  mRequests: defineTable({
+    sessionId: v.id("sessions"),
+    gameId: v.id("mGames"),
+    kind: v.union(v.literal("payment"), v.literal("trade"), v.literal("approval")),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("accepted"),
+      v.literal("declined"),
+      v.literal("expired"),
+      v.literal("cancelled"),
+    ),
+    fromPlayerId: v.id("mPlayers"),
+    toPlayerId: v.optional(v.id("mPlayers")),
+    amount: v.optional(v.number()),
+    // payment: reason; trade: the offer and each side's acceptance; approval: the stored action {kind, args}.
+    payload: v.optional(v.any()),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    respondedAt: v.optional(v.number()),
+    resultGroupId: v.optional(v.string()),
+    scheduledId: v.optional(v.id("_scheduled_functions")),
+  })
+    .index("by_game_status", ["gameId", "status"])
+    .index("by_to", ["toPlayerId", "status"]),
+
+  mAuctions: defineTable({
+    sessionId: v.id("sessions"),
+    gameId: v.id("mGames"),
+    spaceId: v.string(),
+    highestBid: v.number(),
+    highestBidderId: v.optional(v.id("mPlayers")),
+    endsAt: v.number(),
+    status: v.union(v.literal("open"), v.literal("sold"), v.literal("unsold")),
+    startedBy: v.id("mPlayers"),
+    scheduledId: v.optional(v.id("_scheduled_functions")),
+    // Bankruptcy to the bank auctions the debtor's properties one by one.
+    queue: v.optional(v.array(v.string())),
+    startedAt: v.number(),
+  }).index("by_game_status", ["gameId", "status"]),
+
+  // Written when a game ends, so lifetime Monopoly stats never scan events.
+  mGameSummaries: defineTable({
+    crewId: v.id("crews"),
+    crewMemberId: v.id("crewMembers"),
+    sessionId: v.id("sessions"),
+    gameId: v.id("mGames"),
+    sessionPlayerId: v.id("sessionPlayers"),
+    endedAt: v.number(),
+    finishPosition: v.number(),
+    players: v.number(),
+    rentEarned: v.number(),
+    rentPaid: v.number(),
+    stakeNet: v.number(),
+  })
+    .index("by_crew", ["crewId", "endedAt"])
+    .index("by_member", ["crewMemberId", "endedAt"])
+    .index("by_game", ["gameId"]),
 });

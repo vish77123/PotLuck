@@ -11,6 +11,7 @@ export type EntryInput = {
   amount: number;
   createdByPlayerId: Id<"sessionPlayers">;
   gameId?: Id<"games">;
+  mGameId?: Id<"mGames">;
   loanId?: Id<"loans">;
   fromPlayerId?: Id<"sessionPlayers">;
   toPlayerId?: Id<"sessionPlayers">;
@@ -32,7 +33,19 @@ const SHAPES: Record<Exclude<EntryType, "REVERSAL">, { from: "player" | "pool" |
   LOAN: { from: "player", to: "player" },
   LOAN_REPAYMENT: { from: "player", to: "player" },
   CASH_OUT: { from: "player", to: "outside" },
+  // The real money sits in a physical pot outside the app; the entry only attributes it to a player.
+  MONO_BUY_IN: { from: "player", to: "outside" },
+  MONO_PAYOUT: { from: "outside", to: "player" },
 };
+
+/** Stake entries (and their reversals) are attribution only: they never touch a wallet or a pool. */
+export function isStakeType(type: EntryType | undefined) {
+  return type === "MONO_BUY_IN" || type === "MONO_PAYOUT";
+}
+
+function isLedgerOnly(e: Pick<EntryInput, "type" | "reversesType">) {
+  return isStakeType(e.type) || (e.type === "REVERSAL" && isStakeType(e.reversesType));
+}
 
 function sideOf(playerId: Id<"sessionPlayers"> | undefined, pool: boolean | undefined) {
   if (playerId && pool) return "invalid";
@@ -69,11 +82,22 @@ export async function applyEntry(ctx: MutationCtx, e: EntryInput): Promise<Doc<"
   if (from === "outside" && to === "outside") fail("INVALID_STATE", "An entry must move money somewhere.");
   if ((e.fromPool || e.toPool) && !e.gameId) fail("INVALID_STATE", "Pool entries need a game.");
   if (e.fromPlayerId && e.fromPlayerId === e.toPlayerId) fail("INVALID_STATE", "A player can't pay themselves.");
+  const ledgerOnly = isLedgerOnly(e);
+  if (ledgerOnly) {
+    if (e.fromPool || e.toPool) fail("INVALID_STATE", "Stake entries can't touch a pool.");
+    if (!e.mGameId) fail("INVALID_STATE", "Stake entries need a Monopoly game.");
+  } else if (e.mGameId) {
+    fail("INVALID_STATE", "Only stake entries belong to a Monopoly game.");
+  }
 
   const session = await ctx.db.get(e.sessionId);
   if (!session) fail("NOT_FOUND", "Session not found.");
+  if (ledgerOnly) {
+    const mGame = await ctx.db.get(e.mGameId!);
+    if (!mGame || mGame.sessionId !== e.sessionId) fail("NOT_FOUND", "Game not found in this session.");
+  }
 
-  if (e.fromPlayerId) {
+  if (e.fromPlayerId && !ledgerOnly) {
     const wallet = await walletOf(ctx, e.fromPlayerId);
     if (wallet.sessionId !== e.sessionId) fail("INVALID_STATE", "Wallet belongs to another session.");
     if (wallet.balance - e.amount < 0) {
@@ -85,7 +109,7 @@ export async function applyEntry(ctx: MutationCtx, e: EntryInput): Promise<Doc<"
     }
     await ctx.db.patch(wallet._id, { balance: wallet.balance - e.amount });
   }
-  if (e.toPlayerId) {
+  if (e.toPlayerId && !ledgerOnly) {
     const wallet = await walletOf(ctx, e.toPlayerId);
     if (wallet.sessionId !== e.sessionId) fail("INVALID_STATE", "Wallet belongs to another session.");
     await ctx.db.patch(wallet._id, { balance: wallet.balance + e.amount });
@@ -104,6 +128,7 @@ export async function applyEntry(ctx: MutationCtx, e: EntryInput): Promise<Doc<"
   const id = await ctx.db.insert("ledgerEntries", {
     sessionId: e.sessionId,
     gameId: e.gameId,
+    mGameId: e.mGameId,
     loanId: e.loanId,
     seq: session.nextSeq,
     type: e.type,
@@ -141,6 +166,7 @@ export async function reverseEntry(
   return await applyEntry(ctx, {
     sessionId: original.sessionId,
     gameId: original.gameId,
+    mGameId: original.mGameId,
     loanId: original.loanId,
     type: "REVERSAL",
     amount: original.amount,
