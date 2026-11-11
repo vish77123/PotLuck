@@ -2,6 +2,7 @@
 
 import { useConvex } from "convex/react";
 import type { FunctionArgs } from "convex/server";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { MonoSeats } from "@/components/mono/MonoSeats";
@@ -207,7 +208,15 @@ export function MonoLobby({ code, state, game }: { code: string; state: MonoStat
 
       {inSetup && isHost && (
         <>
-          <Title>Board</Title>
+          <Title
+            right={
+              <Link href={`/crew/${crew._id}/board?preset=${board.key}`} className="text-[13px] font-bold text-gold-ink">
+                Edit board values
+              </Link>
+            }
+          >
+            Board
+          </Title>
           <div className="mx-4 mt-2.5 grid grid-cols-2 gap-2.5">
             {PRESET_CARDS.map((c) => {
               const on = board.key === c.key;

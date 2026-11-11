@@ -8,6 +8,7 @@ import { BackButton, Segmented } from "@/components/ui/controls";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useAuthedQuery } from "@/hooks/useAuthedQuery";
+import { MONOPOLY_ENABLED } from "@/lib/flags";
 import { formatNet, netColor } from "@/lib/format";
 
 const RANK = ["#d4ac5a", "#a9adb3", "#b0763e"];
@@ -52,6 +53,12 @@ export default function CrewPage() {
               ]}
             />
           </div>
+          {MONOPOLY_ENABLED && (
+            <Link href={`/crew/${crewId}/board`} className="press mx-4 mt-3.5 flex h-12 items-center justify-between rounded-[16px] border border-line bg-surface px-4 text-[13.5px] font-bold">
+              <span>Property game board values</span>
+              <span className="text-gold-ink">Edit</span>
+            </Link>
+          )}
           <div className="mx-4 mt-3.5 overflow-hidden rounded-[22px] border border-line bg-surface">
             {data.board.length === 0 && <div className="px-4 py-10 text-center text-sm text-ink3">No finished sessions {period === "month" ? "this month" : "yet"}.</div>}
             {data.board.map((r) => (

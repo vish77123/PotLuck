@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { MonoBoardTab, MyDeeds } from "@/components/mono/MonoBoardTab";
 import { MonoFeed } from "@/components/mono/MonoFeed";
 import { BankSheet, GoSheet, PaySheet } from "@/components/mono/MonoSheets";
+import { PropertySheet } from "@/components/mono/PropertySheet";
 import { useMonoActions } from "@/components/mono/actions";
 import { useMoney, type MonoGame, type MonoPlayer, type MonoRequest, type MonoState } from "@/components/mono/types";
 import { Avatar } from "@/components/ui/Avatar";
@@ -11,7 +13,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { useNow } from "@/hooks/useNow";
 import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
 
-type Tab = "me" | "bank" | "feed";
+type Tab = "me" | "board" | "bank" | "feed";
 type SheetKind = "go" | "pay" | "request" | "bankIn" | "bankOut" | null;
 
 function minutesLeft(r: MonoRequest, now: number) {
@@ -105,6 +107,12 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
   const [tab, setTab] = useState<Tab>("me");
   const [sheet, setSheet] = useState<SheetKind>(null);
   const [cancelAsk, setCancelAsk] = useState(false);
+  const [spaceId, setSpaceId] = useState<string | null>(null);
+  const [spaceOpen, setSpaceOpen] = useState(false);
+  const openSpace = (id: string) => {
+    setSpaceId(id);
+    setSpaceOpen(true);
+  };
 
   const players = [...game.players].sort((a, b) => a.seatOrder - b.seatOrder);
   const me: MonoPlayer | null = players.find((p) => p._id === game.myPlayerId) ?? null;
@@ -217,6 +225,8 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
             </div>
           )}
 
+          {me && <MyDeeds game={game} me={me} onOpen={openSpace} />}
+
           <div className="px-5 pt-[22px]">
             <Eyebrow>AT THE TABLE · {players.length}</Eyebrow>
           </div>
@@ -237,6 +247,8 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
           </div>
         </>
       )}
+
+      {tab === "board" && <MonoBoardTab game={game} me={me} onOpen={openSpace} />}
 
       {tab === "bank" && (
         <>
@@ -267,6 +279,27 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
               </div>
             )}
           </div>
+
+          {game.settings.trackProperties && (
+            <div className="mx-4 mt-3 grid grid-cols-2 gap-2.5">
+              {[
+                { k: "Houses in the bank", v: game.bankHouses, of: game.boardSnapshot.houses },
+                { k: "Hotels in the bank", v: game.bankHotels, of: game.boardSnapshot.hotels },
+              ].map((x) => (
+                <div key={x.k} className="rounded-[18px] border border-line bg-surface p-3.5">
+                  <div className="text-[11.5px] font-extrabold text-ink2">{x.k}</div>
+                  <div className="font-display mt-1 text-[30px] font-bold leading-[1.1] tabular-nums">
+                    {x.v}
+                    <span className="text-[15px] text-ink3"> / {x.of}</span>
+                  </div>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface3">
+                    <div className="h-full bg-gold" style={{ width: `${x.of ? (x.v / x.of) * 100 : 0}%` }} />
+                  </div>
+                  {x.v === 0 && <div className="mt-1 text-[11.5px] font-bold text-warn">None left. Building is blocked.</div>}
+                </div>
+              ))}
+            </div>
+          )}
 
           {game.settings.freeParkingPot && (
             <div className="rail mx-4 mt-3 rounded-[26px] p-2">
@@ -312,10 +345,11 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
       )}
 
       <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-line bg-surface" style={{ paddingBottom: "max(10px, env(safe-area-inset-bottom))" }} aria-label="Game sections">
-        <div className="mx-auto grid max-w-[520px] grid-cols-3">
+        <div className="mx-auto grid max-w-[520px]" style={{ gridTemplateColumns: `repeat(${game.settings.trackProperties ? 4 : 3}, minmax(0, 1fr))` }}>
           {(
             [
               ["me", "Me"],
+              ...(game.settings.trackProperties ? ([["board", "Board"]] as const) : []),
               ["bank", "Bank"],
               ["feed", "Feed"],
             ] as const
@@ -329,6 +363,7 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
         </div>
       </nav>
 
+      <PropertySheet open={spaceOpen} onClose={() => setSpaceOpen(false)} game={game} me={me} spaceId={spaceId} isHost={isHost} />
       {me && (
         <>
           <GoSheet open={sheet === "go"} onClose={close} game={game} me={me} />

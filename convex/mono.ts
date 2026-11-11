@@ -10,8 +10,25 @@ import { applyMonopolyGroup, loadGame, loadGroups, myMonoPlayer, requireLive, ro
 import { assertAmount, cleanName } from "./lib/validators";
 import { seatPlayer, uniqueCode, monoGameInProgress } from "./sessions";
 import { describeGroup } from "../lib/monopoly/describe";
-import { checkUndo, gameViolations, invertEvents, planBankCollect, planCollectPot, planPassGo, planPayBank, planPlayerPay, type Plan } from "../lib/monopoly/engine";
-import { PRESETS, presetByKey } from "../lib/monopoly/presets";
+import {
+  checkUndo,
+  gameViolations,
+  invertEvents,
+  planBankCollect,
+  planBuild,
+  planBuy,
+  planCollectPot,
+  planMortgage,
+  planPassGo,
+  planPayBank,
+  planPlayerPay,
+  planRent,
+  planSellBuilding,
+  planUnmortgage,
+  type Plan,
+} from "../lib/monopoly/engine";
+import { crewBoard } from "./monoBoards";
+import { PRESETS } from "../lib/monopoly/presets";
 import { nextPlayer, validateSettings, validateSplit } from "../lib/monopoly/rules";
 import { DEFAULT_SETTINGS, type BoardConfig, type MEvent, type Settings } from "../lib/monopoly/types";
 
@@ -107,7 +124,7 @@ export const createSession = mutation({
         hostPlayerId: playerId,
         hostHistory: [{ kind: "create", toPlayerId: playerId, at: Date.now() }],
       });
-      const gameId = await insertSetupGame(ctx, sessionId, presetByKey(args.presetKey), DEFAULT_SETTINGS);
+      const gameId = await insertSetupGame(ctx, sessionId, await crewBoard(ctx, crewId, args.presetKey), DEFAULT_SETTINGS);
       return { sessionId, code: session.code, playerId, gameId };
     });
   },
@@ -140,8 +157,8 @@ export const updateSetup = mutation({
     const { game } = await requireSetupGame(ctx, args.gameId);
     let board: BoardConfig = game.boardSnapshot;
     if (args.presetKey !== undefined && args.presetKey !== board.key) {
-      if (!PRESETS[args.presetKey]) fail("INVALID_STATE", "Pick a board.");
-      board = presetByKey(args.presetKey);
+      const crewId = (await ctx.db.get(game.sessionId))!.crewId;
+      board = await crewBoard(ctx, crewId, args.presetKey);
     }
     if (args.startingCash !== undefined) {
       assertAmount(args.startingCash, "Starting cash");
@@ -258,7 +275,7 @@ export const newGame = mutation({
     if (last?.settings.bankerPlayerId) banker = (await ctx.db.get(last.settings.bankerPlayerId))?.sessionPlayerId;
     const { bankerPlayerId: _b, ...rest } = last?.settings ?? DEFAULT_SETTINGS;
     void _b;
-    const gameId = await insertSetupGame(ctx, sessionId, last?.boardSnapshot ?? presetByKey("classic"), rest, banker);
+    const gameId = await insertSetupGame(ctx, sessionId, last?.boardSnapshot ?? (await crewBoard(ctx, session.crewId, "classic")), rest, banker);
     return { gameId };
   },
 });
@@ -386,10 +403,18 @@ const actionV = v.union(
   v.object({ kind: v.literal("bankCollect"), playerId: v.optional(v.id("mPlayers")), amount: v.number() }),
   v.object({ kind: v.literal("collectPot"), playerId: v.optional(v.id("mPlayers")) }),
   v.object({ kind: v.literal("pay"), toPlayerId: v.id("mPlayers"), amount: v.number() }),
+  // Property actions (games that track properties).
+  v.object({ kind: v.literal("buy"), playerId: v.optional(v.id("mPlayers")), spaceId: v.string() }),
+  v.object({ kind: v.literal("rent"), spaceId: v.string(), diceTotal: v.optional(v.number()) }),
+  v.object({ kind: v.literal("build"), playerId: v.optional(v.id("mPlayers")), spaceId: v.string() }),
+  v.object({ kind: v.literal("sellBuilding"), playerId: v.optional(v.id("mPlayers")), spaceId: v.string() }),
+  v.object({ kind: v.literal("mortgage"), playerId: v.optional(v.id("mPlayers")), spaceId: v.string() }),
+  v.object({ kind: v.literal("unmortgage"), playerId: v.optional(v.id("mPlayers")), spaceId: v.string() }),
 );
 type Action = Infer<typeof actionV>;
 
-const isBankFacing = (a: Action) => a.kind !== "pay";
+/** Player-to-player money (a payment, rent) is never queued for the banker; everything that touches the bank is. */
+const isBankFacing = (a: Action) => a.kind !== "pay" && a.kind !== "rent";
 
 /** Builds and validates the events for an action against the current state, without writing anything. */
 function planAction(loaded: Awaited<ReturnType<typeof loadGame>>, actor: Id<"mPlayers"> | null, action: Action, opts: { skipRepeatCheck?: boolean } = {}) {
@@ -418,6 +443,24 @@ function planAction(loaded: Awaited<ReturnType<typeof loadGame>>, actor: Id<"mPl
       break;
     case "collectPot":
       plan = rules(() => planCollectPot(state, target));
+      break;
+    case "buy":
+      plan = rules(() => planBuy(state, target, action.spaceId));
+      break;
+    case "rent":
+      plan = rules(() => planRent(state, target, action.spaceId, { diceTotal: action.diceTotal }));
+      break;
+    case "build":
+      plan = rules(() => planBuild(state, target, action.spaceId));
+      break;
+    case "sellBuilding":
+      plan = rules(() => planSellBuilding(state, target, action.spaceId));
+      break;
+    case "mortgage":
+      plan = rules(() => planMortgage(state, target, action.spaceId));
+      break;
+    case "unmortgage":
+      plan = rules(() => planUnmortgage(state, target, action.spaceId));
       break;
     case "pay": {
       if (!actor) fail("INVALID_STATE", "Only players can pay each other.");

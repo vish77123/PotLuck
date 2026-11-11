@@ -4,6 +4,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { balances, expectError, key, newDevice, setup, type Device, type T } from "./test.setup";
 import { table } from "./test.setup";
+import { CLASSIC } from "../lib/monopoly/presets";
 
 beforeAll(() => {
   process.env.MONOPOLY_ENABLED = "true";
@@ -560,5 +561,310 @@ describe("pool sessions are untouched", () => {
     expect(state.game).toMatchObject({ _id: gameId, gameNo: 2, status: "setup" });
     expect(state.game!.settings.freeParkingPot).toBe(true);
     expect(state.game!.boardSnapshot.key).toBe("business");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Milestone 3: property tracking and the crew board editor
+// ---------------------------------------------------------------------------------------------
+
+const sp = (name: string) => CLASSIC.spaces.find((x) => x.name === name)!.id;
+const ORANGE = ["Market Sq", "Bridge St", "Chapel Hill"];
+
+async function propOf(t: T, s: Table, name: string) {
+  return await t.run(async (ctx) => {
+    const row = await ctx.db.query("mPropertyStates").withIndex("by_game_space", (q) => q.eq("gameId", s.gameId).eq("spaceId", sp(name))).unique();
+    const owner = row!.ownerPlayerId ? (await ctx.db.get(row!.ownerPlayerId))! : null;
+    const ownerName = owner ? (await ctx.db.get(owner.sessionPlayerId))!.name : null;
+    return { owner: ownerName, houses: row!.houses, hotel: row!.hotel, mortgaged: row!.mortgaged };
+  });
+}
+const stock = async (t: T, s: Table) => {
+  const g = await t.run((ctx) => ctx.db.get(s.gameId));
+  return { houses: g!.bankHouses, hotels: g!.bankHotels };
+};
+const buy = (s: Table, who: string, name: string) => perform(s, who, { kind: "buy", spaceId: sp(name) });
+async function ownSet(s: Table, who: string, names = ORANGE) {
+  for (const n of names) await buy(s, who, n);
+}
+
+describe("buying and rent", () => {
+  test("buying takes the list price and hands over the deed", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    await buy(s, "Priya", "Market Sq");
+    expect((await cashOf(t, s)).Priya).toBe(1320);
+    expect(await propOf(t, s, "Market Sq")).toMatchObject({ owner: "Priya", houses: 0, mortgaged: false });
+    await expectError(buy(s, "Meera", "Market Sq"), "INVALID_STATE", /already has an owner/);
+    await expectError(buy(s, "Meera", "GO"), "INVALID_STATE");
+    await check(t, s);
+  });
+
+  test("you can't buy what you can't afford, and the deed stays with the bank", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"], { settings: { startingCash: 100 } });
+    await expectError(buy(s, "Priya", "Market Sq"), "INSUFFICIENT_BALANCE");
+    expect((await propOf(t, s, "Market Sq")).owner).toBeNull();
+  });
+
+  test("money-only games refuse property actions", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"], { settings: { trackProperties: false } });
+    await expectError(buy(s, "Priya", "Market Sq"), "INVALID_STATE", /aren't tracked/);
+  });
+
+  test("landing on an owned space: rent is paid in one tap, doubled for a full set, and is player-to-player", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    await buy(s, "Arjun", "Market Sq");
+    await perform(s, "Priya", { kind: "rent", spaceId: sp("Market Sq") });
+    expect(await cashOf(t, s)).toMatchObject({ Arjun: 1500 - 180 + 14, Priya: 1486 });
+    await buy(s, "Arjun", "Bridge St");
+    await buy(s, "Arjun", "Chapel Hill");
+    await perform(s, "Meera", { kind: "rent", spaceId: sp("Market Sq") }); // full unimproved set: 2 × 14
+    expect((await cashOf(t, s)).Meera).toBe(1472);
+    await check(t, s);
+  });
+
+  test("utilities ask for the dice total; the owner can't pay themselves; unowned and mortgaged owe nothing", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await buy(s, "Arjun", "Power Co.");
+    await expectError(perform(s, "Priya", { kind: "rent", spaceId: sp("Power Co.") }), "INVALID_STATE", /dice total/);
+    await perform(s, "Priya", { kind: "rent", spaceId: sp("Power Co."), diceTotal: 8 });
+    expect((await cashOf(t, s)).Priya).toBe(1500 - 32);
+    await expectError(perform(s, "Arjun", { kind: "rent", spaceId: sp("Power Co."), diceTotal: 8 }), "INVALID_STATE", /You own this/);
+    await expectError(perform(s, "Priya", { kind: "rent", spaceId: sp("Mill Lane") }), "INVALID_STATE", /bank owns/);
+    await perform(s, "Arjun", { kind: "mortgage", spaceId: sp("Power Co.") });
+    await expectError(perform(s, "Priya", { kind: "rent", spaceId: sp("Power Co."), diceTotal: 8 }), "INVALID_STATE", /Mortgaged/);
+  });
+
+  test("rent the payer can't afford says who is short and by how much", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await ownSet(s, "Arjun");
+    for (let i = 0; i < 3; i++) for (const n of ORANGE) await perform(s, "Arjun", { kind: "build", spaceId: sp(n) });
+    await perform(s, "Priya", { kind: "bankPay", amount: 1000, reason: "bank" });
+    // 3 houses on Market Sq = $550 rent against $500 cash.
+    const e = await expectError(perform(s, "Priya", { kind: "rent", spaceId: sp("Market Sq") }), "INSUFFICIENT_BALANCE");
+    expect(e).toMatchObject({ detail: { playerId: id(s, "Priya"), needed: 550, shortBy: 50 } });
+  });
+});
+
+describe("building, selling, mortgages", () => {
+  test("building needs the set, charges the house cost and draws from the bank's 32 houses", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await buy(s, "Arjun", "Market Sq");
+    await expectError(perform(s, "Arjun", { kind: "build", spaceId: sp("Market Sq") }), "INVALID_STATE", /whole orange set/);
+    await buy(s, "Arjun", "Bridge St");
+    await buy(s, "Arjun", "Chapel Hill");
+    const before = (await cashOf(t, s)).Arjun;
+    await perform(s, "Arjun", { kind: "build", spaceId: sp("Market Sq") });
+    expect((await cashOf(t, s)).Arjun).toBe(before - 100);
+    expect(await stock(t, s)).toEqual({ houses: 31, hotels: 12 });
+    await expectError(perform(s, "Arjun", { kind: "build", spaceId: sp("Market Sq") }), "INVALID_STATE", /evenly/);
+    await check(t, s);
+  });
+
+  test("four houses then a hotel returns the houses to the bank; selling steps back down for half the cost", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"], { settings: { startingCash: 5000 } });
+    await ownSet(s, "Arjun");
+    for (let i = 0; i < 4; i++) for (const n of ORANGE) await perform(s, "Arjun", { kind: "build", spaceId: sp(n) });
+    expect(await stock(t, s)).toEqual({ houses: 20, hotels: 12 });
+    await perform(s, "Arjun", { kind: "build", spaceId: sp("Market Sq") });
+    expect(await propOf(t, s, "Market Sq")).toMatchObject({ houses: 0, hotel: true });
+    expect(await stock(t, s)).toEqual({ houses: 24, hotels: 11 });
+    const cash = (await cashOf(t, s)).Arjun;
+    await expectError(perform(s, "Arjun", { kind: "sellBuilding", spaceId: sp("Bridge St") }), "INVALID_STATE", /Sell evenly/);
+    await perform(s, "Arjun", { kind: "sellBuilding", spaceId: sp("Market Sq") });
+    expect((await cashOf(t, s)).Arjun).toBe(cash + 50);
+    expect(await propOf(t, s, "Market Sq")).toMatchObject({ houses: 4, hotel: false });
+    await check(t, s);
+  });
+
+  test("the bank's houses run out: building is blocked", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"], { settings: { startingCash: 20000 } });
+    // A board with no houses in the box at all (consistent with the stock invariant).
+    await t.run(async (ctx) => {
+      const g = (await ctx.db.get(s.gameId))!;
+      await ctx.db.patch(s.gameId, { boardSnapshot: { ...g.boardSnapshot, houses: 0 }, bankHouses: 0 });
+    });
+    await ownSet(s, "Arjun");
+    await expectError(perform(s, "Arjun", { kind: "build", spaceId: sp("Market Sq") }), "INVALID_STATE", /no houses left/);
+  });
+
+  test("mortgage pays half the price; unmortgage costs it plus 10%; buildings must be sold first", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await ownSet(s, "Arjun");
+    await perform(s, "Arjun", { kind: "build", spaceId: sp("Market Sq") });
+    await expectError(perform(s, "Arjun", { kind: "mortgage", spaceId: sp("Bridge St") }), "INVALID_STATE", /Sell the buildings/);
+    await perform(s, "Arjun", { kind: "sellBuilding", spaceId: sp("Market Sq") });
+    const before = (await cashOf(t, s)).Arjun;
+    await perform(s, "Arjun", { kind: "mortgage", spaceId: sp("Bridge St") });
+    expect((await cashOf(t, s)).Arjun).toBe(before + 90);
+    expect((await propOf(t, s, "Bridge St")).mortgaged).toBe(true);
+    await expectError(perform(s, "Arjun", { kind: "build", spaceId: sp("Market Sq") }), "INVALID_STATE", /Unmortgage/);
+    await perform(s, "Arjun", { kind: "unmortgage", spaceId: sp("Bridge St") });
+    expect((await cashOf(t, s)).Arjun).toBe(before + 90 - 99);
+    await expectError(perform(s, "Priya", { kind: "mortgage", spaceId: sp("Market Sq") }), "INVALID_STATE", /don't own/);
+    await check(t, s);
+  });
+
+  test("you can only build for yourself; the host can for anyone", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    await ownSet(s, "Priya");
+    await expectError(perform(s, "Meera", { kind: "build", playerId: id(s, "Priya"), spaceId: sp("Market Sq") }), "FORBIDDEN");
+    await perform(s, "Arjun", { kind: "build", playerId: id(s, "Priya"), spaceId: sp("Market Sq") });
+    expect((await propOf(t, s, "Market Sq")).houses).toBe(1);
+  });
+
+  test("banker mode queues buying, building and mortgages but never rent", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"], { settings: { bankerMode: "bankerApproves", banker: "Meera" } });
+    const r = await buy(s, "Priya", "Market Sq");
+    expect(r.status).toBe("pending");
+    expect((await propOf(t, s, "Market Sq")).owner).toBeNull();
+    await s.seats.Meera.as.mutation(api.mono.respond, { requestId: r.requestId!, accept: true, idempotencyKey: key() });
+    expect(await propOf(t, s, "Market Sq")).toMatchObject({ owner: "Priya" });
+    expect((await cashOf(t, s)).Priya).toBe(1320);
+    expect(await perform(s, "Arjun", { kind: "rent", spaceId: sp("Market Sq") })).toMatchObject({ status: "done" });
+    const m = await perform(s, "Priya", { kind: "mortgage", spaceId: sp("Market Sq") });
+    expect(m.status).toBe("pending");
+    await check(t, s);
+  });
+
+  test("an approval that was overtaken fails cleanly: the deed was bought by someone else meanwhile", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"], { settings: { bankerMode: "bankerApproves", banker: "Meera" } });
+    const queued = await buy(s, "Priya", "Market Sq");
+    await buy(s, "Arjun", "Market Sq"); // the host buys at once
+    await expectError(s.seats.Meera.as.mutation(api.mono.respond, { requestId: queued.requestId!, accept: true, idempotencyKey: key() }), "INVALID_STATE", /already has an owner/);
+    expect((await propOf(t, s, "Market Sq")).owner).toBe("Arjun");
+  });
+
+  test("undoing a purchase returns the deed and cash, but not after rent was paid on it", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    const groupOf = async () => {
+      const st = await s.host.as.query(api.mono.state, { sessionId: s.sessionId });
+      return st.game!.events.filter((e) => e.type !== "TURN")[0].groupId;
+    };
+    await buy(s, "Priya", "Market Sq");
+    const purchase = await groupOf();
+    await perform(s, "Arjun", { kind: "rent", spaceId: sp("Market Sq") });
+    await expectError(s.host.as.mutation(api.mono.undo, { gameId: s.gameId, groupId: purchase, idempotencyKey: key() }), "NOT_UNDOABLE", /Undo "Arjun paid Priya \$14 rent for Market Sq" first/);
+    await s.host.as.mutation(api.mono.undo, { gameId: s.gameId, groupId: await groupOf(), idempotencyKey: key() });
+    await s.host.as.mutation(api.mono.undo, { gameId: s.gameId, groupId: purchase, idempotencyKey: key() });
+    expect((await propOf(t, s, "Market Sq")).owner).toBeNull();
+    expect(await cashOf(t, s)).toEqual({ Arjun: 1500, Priya: 1500 });
+    await check(t, s);
+  });
+
+  test("labels read as sentences", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await buy(s, "Priya", "Market Sq");
+    await perform(s, "Arjun", { kind: "rent", spaceId: sp("Market Sq") });
+    const state = await s.host.as.query(api.mono.state, { sessionId: s.sessionId });
+    expect([...new Set(state.game!.events.map((e) => e.label))]).toEqual(["Arjun paid Priya $14 rent for Market Sq", "Priya bought Market Sq for $180"]);
+  });
+});
+
+describe("crew board editor", () => {
+  const crewOf = async (t: T, s: Table) => (await t.run((ctx) => ctx.db.get(s.sessionId)))!.crewId;
+  const edited = (patch: (b: typeof CLASSIC) => void) => {
+    const b = structuredClone(CLASSIC);
+    patch(b);
+    return b;
+  };
+
+  test("lists every preset, flagging which ones the crew has corrected", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"], { start: false });
+    const crewId = await crewOf(t, s);
+    const res = await s.host.as.query(api.monoBoards.list, { crewId });
+    expect(res.boards.map((b) => [b.key, b.saved])).toEqual([["classic", false], ["business", false]]);
+    expect(res.boards.find((b) => b.key === "business")!.board.verified).toBe(false);
+  });
+
+  test("a corrected board is used by the crew's next games, and other crews are untouched", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"], { start: false, settings: { presetKey: "business" } });
+    const crewId = await crewOf(t, s);
+    const board = (await s.host.as.query(api.monoBoards.list, { crewId })).boards.find((b) => b.key === "business")!.board;
+    const fixed = structuredClone(board);
+    const mumbai = fixed.spaces.find((x) => x.name === "Mumbai")!;
+    mumbai.price = 420;
+    mumbai.mortgage = 210;
+    mumbai.verified = true;
+    await s.host.as.mutation(api.monoBoards.save, { crewId, presetKey: "business", board: fixed });
+    const after = await s.host.as.query(api.monoBoards.list, { crewId });
+    expect(after.boards.find((b) => b.key === "business")).toMatchObject({ saved: true });
+    expect(after.boards.find((b) => b.key === "classic")!.saved).toBe(false);
+
+    // A brand-new game in this crew starts from the corrected board…
+    const s2 = await monoTable(t, ["Zed", "Yan"], { start: false });
+    const other = await s2.host.as.query(api.mono.state, { sessionId: s2.sessionId });
+    expect(other.game!.boardSnapshot.key).toBe("classic");
+    // …and so does the waiting game in the first session, straight away.
+    const waiting = await s.host.as.query(api.mono.state, { sessionId: s.sessionId });
+    expect(waiting.game!.boardSnapshot.spaces.find((x) => x.name === "Mumbai")).toMatchObject({ price: 420, verified: true });
+    // The other crew's board is not affected.
+    const otherCrew = await crewOf(t, s2);
+    expect((await s2.host.as.query(api.monoBoards.list, { crewId: otherCrew })).boards.every((b) => !b.saved)).toBe(true);
+  });
+
+  test("a game keeps the board it started with; later corrections only affect new games", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    const crewId = await crewOf(t, s);
+    await s.host.as.mutation(api.monoBoards.save, { crewId, presetKey: "classic", board: edited((b) => (b.spaces.find((x) => x.name === "Market Sq")!.price = 999)) });
+    const running = await s.host.as.query(api.mono.state, { sessionId: s.sessionId });
+    expect(running.game!.boardSnapshot.spaces.find((x) => x.name === "Market Sq")!.price).toBe(180);
+    await buy(s, "Priya", "Market Sq");
+    expect((await cashOf(t, s)).Priya).toBe(1320);
+    await s.host.as.mutation(api.mono.cancelGame, { gameId: s.gameId, idempotencyKey: key() });
+    const { gameId } = await s.host.as.mutation(api.mono.newGame, { sessionId: s.sessionId });
+    expect(gameId).toBeDefined();
+  });
+
+  test("a hosts's starting cash choice in the lobby survives a board correction", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"], { start: false, settings: { startingCash: 2500 } });
+    const crewId = await crewOf(t, s);
+    await s.host.as.mutation(api.monoBoards.save, { crewId, presetKey: "classic", board: edited((b) => (b.passGo = 300)) });
+    const st = await s.host.as.query(api.mono.state, { sessionId: s.sessionId });
+    expect(st.game!.boardSnapshot).toMatchObject({ passGo: 300, startingCash: 2500 });
+  });
+
+  test("rejects an invalid board with a plain reason, and only crew members can edit", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"], { start: false });
+    const crewId = await crewOf(t, s);
+    await expectError(
+      s.host.as.mutation(api.monoBoards.save, { crewId, presetKey: "classic", board: edited((b) => (b.spaces[1].rent = [1, 2])) }),
+      "INVALID_STATE",
+      /needs 6 rents/,
+    );
+    await expectError(s.host.as.mutation(api.monoBoards.save, { crewId, presetKey: "business", board: structuredClone(CLASSIC) }), "INVALID_STATE", /doesn't match/);
+    const stranger = await newDevice(t);
+    await expectError(stranger.mutation(api.monoBoards.save, { crewId, presetKey: "classic", board: structuredClone(CLASSIC) }), "FORBIDDEN");
+    await expectError(stranger.query(api.monoBoards.list, { crewId }), "FORBIDDEN");
+  });
+
+  test("reset goes back to the shipped preset", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"], { start: false });
+    const crewId = await crewOf(t, s);
+    await s.host.as.mutation(api.monoBoards.save, { crewId, presetKey: "classic", board: edited((b) => (b.jailFine = 75)) });
+    expect((await s.host.as.query(api.mono.state, { sessionId: s.sessionId })).game!.boardSnapshot.jailFine).toBe(75);
+    await s.host.as.mutation(api.monoBoards.reset, { crewId, presetKey: "classic" });
+    expect((await s.host.as.query(api.mono.state, { sessionId: s.sessionId })).game!.boardSnapshot.jailFine).toBe(50);
+    expect((await s.host.as.query(api.monoBoards.list, { crewId })).boards[0].saved).toBe(false);
   });
 });

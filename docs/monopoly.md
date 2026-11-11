@@ -2,6 +2,24 @@
 
 Branch `monopoly`. Nothing here is deployed to production. The README gets its Monopoly section in milestone 6.
 
+## Milestone 3 status
+
+Property tracking works in games with "Track properties" on: buy from the bank, the landed-on flow with one-tap rent,
+the Board tab (every deed by colour, owner fill, mortgage hatch, building pips), my deeds on the Me tab, building and
+selling with even-building and bank stock, mortgages, bank stock cards, and the crew-level board editor. Not yet built:
+auctions (a property can only be bought at its list price for now), trades, card actions, jail UI, bankruptcy.
+
+- **Property actions** go through the same `mono.perform` as bank moves: `buy`, `rent`, `build`, `sellBuilding`,
+  `mortgage`, `unmortgage`. Rent is player-to-player, so it is instant even in banker mode; everything else that touches the
+  bank is queued for the banker.
+- **Board editor** (`/crew/ID/board`, also linked from the lobby and the crew page): each crew can keep a corrected copy of
+  Classic and Business (`boardConfigs`). Saving also updates games of that crew that are still in setup (keeping a starting
+  cash the host chose); a game that has started keeps its snapshot. Anyone in the crew can edit; values are validated by
+  `boardProblems`. Marking a space "checked" clears its `verified: false` flag, which is how you work through the Business
+  list above.
+- **Files:** `convex/monoBoards.ts`, `components/mono/{PropertySheet,MonoBoardTab,BoardEditor}.tsx`,
+  `lib/monopoly/colors.ts`.
+
 ## Milestone 2 status
 
 The property-game session type works end to end behind the flag: create, join, setup, start, dashboard, bank moves, Pass GO,

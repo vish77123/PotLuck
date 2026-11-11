@@ -24,6 +24,7 @@ import type * as lib_nets from "../lib/nets.js";
 import type * as lib_validators from "../lib/validators.js";
 import type * as loans from "../loans.js";
 import type * as mono from "../mono.js";
+import type * as monoBoards from "../monoBoards.js";
 import type * as presence from "../presence.js";
 import type * as report from "../report.js";
 import type * as sessions from "../sessions.js";
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   "lib/validators": typeof lib_validators;
   loans: typeof loans;
   mono: typeof mono;
+  monoBoards: typeof monoBoards;
   presence: typeof presence;
   report: typeof report;
   sessions: typeof sessions;
