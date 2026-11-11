@@ -22,7 +22,7 @@ import { moneyTheme, walletMode } from "./schema";
 // No 0/O or 1/I so codes read cleanly off a phone across the table.
 const CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
-async function uniqueCode(ctx: MutationCtx) {
+export async function uniqueCode(ctx: MutationCtx) {
   for (let attempt = 0; attempt < 20; attempt++) {
     let code = "";
     for (let i = 0; i < 6; i++) code += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
@@ -33,6 +33,18 @@ async function uniqueCode(ctx: MutationCtx) {
     if (!clash) return code;
   }
   fail("INVALID_STATE", "Couldn't generate a room code. Try again.");
+}
+
+/** A Monopoly game that is running or paused (a game still being set up doesn't count). */
+export async function monoGameInProgress(ctx: { db: MutationCtx["db"] }, sessionId: Id<"sessions">) {
+  for (const status of ["active", "paused"] as const) {
+    const g = await ctx.db
+      .query("mGames")
+      .withIndex("by_session_status", (q) => q.eq("sessionId", sessionId).eq("status", status))
+      .first();
+    if (g) return true;
+  }
+  return false;
 }
 
 export function normalizeCode(code: string) {
@@ -56,7 +68,7 @@ function buyInFor(session: Doc<"sessions">, requested: number | undefined) {
 }
 
 /** Seats a crew member on this device, or reseats them after a cash-out. One device = one player per session. */
-async function seatPlayer(
+export async function seatPlayer(
   ctx: MutationCtx,
   session: Doc<"sessions">,
   member: Doc<"crewMembers">,
@@ -105,13 +117,16 @@ async function seatPlayer(
     await ctx.db.insert("wallets", { sessionId: session._id, sessionPlayerId: playerId, balance: 0 });
     await ctx.db.insert("presence", { sessionId: session._id, sessionPlayerId: playerId, lastSeenAt: Date.now() });
   }
-  await applyEntry(ctx, {
-    sessionId: session._id,
-    type: "BUY_IN",
-    toPlayerId: playerId,
-    amount: buyIn,
-    createdByPlayerId: playerId,
-  });
+  // Pool buy-ins are always at least 1. A property game has no session buy-in (stakes are per game), so 0 skips it.
+  if (buyIn > 0) {
+    await applyEntry(ctx, {
+      sessionId: session._id,
+      type: "BUY_IN",
+      toPlayerId: playerId,
+      amount: buyIn,
+      createdByPlayerId: playerId,
+    });
+  }
   await grantCrewAccess(ctx, session.crewId, userId);
   return playerId;
 }
@@ -204,6 +219,7 @@ export const joinInfo = query({
       crewId: crew._id,
       crewName: crew.name,
       sessionName: session.name ?? null,
+      type: session.type ?? ("pool" as const),
       hostName: host?.name ?? null,
       walletMode: session.walletMode,
       startingAmount: session.startingAmount,
@@ -416,8 +432,9 @@ export const renameMe = mutation({
 export const reorderSeats = mutation({
   args: { sessionId: v.id("sessions"), order: v.array(v.id("sessionPlayers")) },
   handler: async (ctx, { sessionId, order }) => {
-    await requireHost(ctx, sessionId);
+    const { session } = await requireHost(ctx, sessionId);
     if (await activeGameOf(ctx, sessionId)) fail("INVALID_STATE", "Seats can't move during a game.");
+    if (session.type === "monopoly" && (await monoGameInProgress(ctx, sessionId))) fail("INVALID_STATE", "Seats can't move during a game.");
     const players = await ctx.db
       .query("sessionPlayers")
       .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
@@ -436,6 +453,15 @@ export const end = mutation({
     const { userId, session } = await requireHost(ctx, sessionId);
     return await withIdempotency(ctx, userId, idempotencyKey, async () => {
       if (await activeGameOf(ctx, sessionId)) fail("INVALID_STATE", "End or cancel the current game first.");
+      if (session.type === "monopoly") {
+        if (await monoGameInProgress(ctx, sessionId)) fail("INVALID_STATE", "End or cancel the current game first.");
+        // A game that was set up but never started just closes with the session.
+        const setups = await ctx.db
+          .query("mGames")
+          .withIndex("by_session_status", (q) => q.eq("sessionId", sessionId).eq("status", "setup"))
+          .collect();
+        for (const g of setups) await ctx.db.patch(g._id, { status: "cancelled", endedAt: Date.now() });
+      }
       const now = Date.now();
       const loans = await ctx.db
         .query("loans")
@@ -610,6 +636,7 @@ export const mine = query({
           code: session.code,
           name: session.name ?? null,
           crewName: crew?.name ?? "",
+          type: session.type ?? ("pool" as const),
           status: session.status,
           createdAt: session.createdAt,
           endedAt: session.endedAt ?? null,

@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
-import { getGameInSession, getPlayerInSession, requireActivePlayer, requireHost, requirePlayer } from "./lib/access";
+import { getGameInSession, getPlayerInSession, requireActivePlayer, requireHost, requirePlayer, requirePoolSession } from "./lib/access";
 import { fail } from "./lib/errors";
 import {
   activeGameOf,
@@ -24,6 +24,7 @@ export const start = mutation({
   handler: async (ctx, args) => {
     const { userId, session, player: host } = await requireHost(ctx, args.sessionId);
     return await withIdempotency(ctx, userId, args.idempotencyKey, async () => {
+      requirePoolSession(session);
       if (await activeGameOf(ctx, session._id)) fail("INVALID_STATE", "A game is already in progress.");
       const template = await ctx.db.get(args.templateId);
       if (!template || template.crewId !== session.crewId || template.archived) {

@@ -12,6 +12,7 @@ export function AmountStepper({
   zeroLabel,
   size = "md",
   label,
+  format = formatInr,
 }: {
   value: number;
   onChange: (v: number) => void;
@@ -21,6 +22,8 @@ export function AmountStepper({
   zeroLabel?: string;
   size?: "md" | "lg";
   label: string;
+  /** How the amount is shown. Defaults to rupees; property games pass their own currency. */
+  format?: (n: number) => string;
 }) {
   const clamp = (n: number) => Math.min(max, Math.max(min, n));
   const dim = size === "lg" ? 52 : 40;
@@ -33,7 +36,7 @@ export function AmountStepper({
       <input
         aria-label={label}
         inputMode="numeric"
-        value={value === 0 && zeroLabel ? zeroLabel : formatInr(value)}
+        value={value === 0 && zeroLabel ? zeroLabel : format(value)}
         onFocus={(e) => e.currentTarget.select()}
         onChange={(e) => onChange(clamp(parseAmount(e.target.value)))}
         className="amount min-w-0 bg-transparent text-center outline-none"

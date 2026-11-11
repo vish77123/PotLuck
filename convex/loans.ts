@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { mutation, type MutationCtx } from "./_generated/server";
-import { getPlayerInSession, requireActivePlayer, requirePlayer } from "./lib/access";
+import { getPlayerInSession, requireActivePlayer, requirePlayer, requirePoolSession } from "./lib/access";
 import { fail } from "./lib/errors";
 import { applyEntry, withIdempotency } from "./lib/ledger";
 import { assertAmount, formatInr } from "./lib/validators";
@@ -21,7 +21,8 @@ export const request = mutation({
     idempotencyKey: v.string(),
   },
   handler: async (ctx, { sessionId, lenderPlayerId, amount, idempotencyKey }) => {
-    const { userId, player: me } = await requireActivePlayer(ctx, sessionId);
+    const { userId, session, player: me } = await requireActivePlayer(ctx, sessionId);
+    requirePoolSession(session);
     return await withIdempotency(ctx, userId, idempotencyKey, async () => {
       assertAmount(amount, "Loan amount");
       const lender = await getPlayerInSession(ctx, sessionId, lenderPlayerId);

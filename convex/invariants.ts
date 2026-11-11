@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { internalQuery, type QueryCtx } from "./_generated/server";
+import { isStakeType } from "./lib/ledger";
 import { computeNets } from "./lib/nets";
 
 /**
@@ -32,18 +33,27 @@ export async function checkSessionInvariants(ctx: QueryCtx, sessionId: Id<"sessi
   const reversed = new Set<string>();
   let external = 0; // buy-ins + top-ups − cash-outs, net of reversals
   let lastSeq = 0;
+  const stakeBuyIns = new Map<string, number>(); // per Monopoly game, net of reversals
+  const stakePayouts = new Map<string, number>();
 
   for (const e of entries) {
     if (e.seq <= lastSeq) violations.push(`seq not increasing at ${e.seq}`);
     lastSeq = e.seq;
     if (!Number.isSafeInteger(e.amount) || e.amount <= 0) violations.push(`bad amount on seq ${e.seq}`);
-    if (e.fromPlayerId) replayWallet.set(e.fromPlayerId, (replayWallet.get(e.fromPlayerId) ?? 0) - e.amount);
-    if (e.toPlayerId) replayWallet.set(e.toPlayerId, (replayWallet.get(e.toPlayerId) ?? 0) + e.amount);
-    if (e.fromPool) replayPool.set(e.gameId!, (replayPool.get(e.gameId!) ?? 0) - e.amount);
-    if (e.toPool) replayPool.set(e.gameId!, (replayPool.get(e.gameId!) ?? 0) + e.amount);
-
     const kind = e.type === "REVERSAL" ? e.reversesType : e.type;
     const sign = e.type === "REVERSAL" ? -1 : 1;
+    if (isStakeType(kind)) {
+      // Stakes are attribution only; they're checked per game below, not against wallets or pools.
+      stakeBuyIns.set(e.mGameId!, (stakeBuyIns.get(e.mGameId!) ?? 0) + (kind === "MONO_BUY_IN" ? sign * e.amount : 0));
+      stakePayouts.set(e.mGameId!, (stakePayouts.get(e.mGameId!) ?? 0) + (kind === "MONO_PAYOUT" ? sign * e.amount : 0));
+      if (e.mGameId === undefined) violations.push(`stake entry seq ${e.seq} has no game`);
+    } else {
+      if (e.fromPlayerId) replayWallet.set(e.fromPlayerId, (replayWallet.get(e.fromPlayerId) ?? 0) - e.amount);
+      if (e.toPlayerId) replayWallet.set(e.toPlayerId, (replayWallet.get(e.toPlayerId) ?? 0) + e.amount);
+      if (e.fromPool) replayPool.set(e.gameId!, (replayPool.get(e.gameId!) ?? 0) - e.amount);
+      if (e.toPool) replayPool.set(e.gameId!, (replayPool.get(e.gameId!) ?? 0) + e.amount);
+    }
+
     if (kind === "BUY_IN" || kind === "TOP_UP") external += sign * e.amount;
     if (kind === "CASH_OUT") external -= sign * e.amount;
 
@@ -78,11 +88,31 @@ export async function checkSessionInvariants(ctx: QueryCtx, sessionId: Id<"sessi
     violations.push(`wallets ${walletSum} + open pools ${openPools} ≠ buy-ins + top-ups − cash-outs ${external}`);
   }
 
+  // Real-₹ stakes: a finished game pays out exactly what it collected; a cancelled game refunds all of it.
+  // Games still going hold their buy-ins in the physical pot.
+  let openStakes = 0;
+  const mGames = await ctx.db
+    .query("mGames")
+    .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
+    .collect();
+  for (const g of mGames) {
+    const inn = stakeBuyIns.get(g._id) ?? 0;
+    const out = stakePayouts.get(g._id) ?? 0;
+    if (g.status === "ended" && inn !== out) violations.push(`Monopoly game #${g.gameNo} took ${inn} in stakes but paid out ${out}`);
+    else if (g.status === "cancelled" && (inn !== 0 || out !== 0)) violations.push(`cancelled Monopoly game #${g.gameNo} still holds stakes ${inn}/${out}`);
+    else if (g.status !== "ended" && g.status !== "cancelled") openStakes += inn - out;
+  }
+  for (const gameId of new Set([...stakeBuyIns.keys(), ...stakePayouts.keys()])) {
+    if (!mGames.some((g) => g._id === gameId)) violations.push(`stake entries point at a missing game ${gameId}`);
+  }
+
   const nets = await computeNets(ctx, sessionId);
   const netSum = nets.reduce((s, n) => s + n.net, 0);
-  if (netSum + openPools !== 0) violations.push(`nets sum to ${netSum} with ${openPools} in open pools`);
+  if (netSum + openPools + openStakes !== 0) {
+    violations.push(`nets sum to ${netSum} with ${openPools} in open pools and ${openStakes} in open stakes`);
+  }
 
-  return { violations, walletSum, openPools, external, netSum, entryCount: entries.length };
+  return { violations, walletSum, openPools, openStakes, external, netSum, entryCount: entries.length };
 }
 
 export const assertSessionInvariants = internalQuery({

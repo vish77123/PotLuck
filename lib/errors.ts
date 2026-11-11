@@ -18,6 +18,15 @@ export function errorCode(err: unknown): string | null {
   return null;
 }
 
+/** Structured data some rule errors carry, e.g. { playerId, needed, shortBy } for a payment someone can't afford. */
+export function errorDetail(err: unknown): Record<string, unknown> | null {
+  if (err instanceof ConvexError) {
+    const data = err.data as unknown;
+    if (data && typeof data === "object" && "detail" in data && data.detail && typeof data.detail === "object") return data.detail as Record<string, unknown>;
+  }
+  return null;
+}
+
 export function newKey() {
   return crypto.randomUUID();
 }

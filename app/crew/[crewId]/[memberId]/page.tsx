@@ -6,11 +6,13 @@ import { BackButton } from "@/components/ui/controls";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useAuthedQuery } from "@/hooks/useAuthedQuery";
+import { MONOPOLY_ENABLED } from "@/lib/flags";
 import { formatDay, formatInr, formatNet, netColor } from "@/lib/format";
 
 export default function ProfilePage() {
   const { crewId, memberId } = useParams<{ crewId: string; memberId: string }>();
   const p = useAuthedQuery(api.stats.profile, { crewId: crewId as Id<"crews">, memberId: memberId as Id<"crewMembers"> });
+  const property = useAuthedQuery(api.monoStats.profile, MONOPOLY_ENABLED ? { crewId: crewId as Id<"crews">, memberId: memberId as Id<"crewMembers"> } : "skip");
   const maxAbs = Math.max(1, ...(p?.recent.map((r) => Math.abs(r.net)) ?? [1]));
 
   return (
@@ -80,6 +82,24 @@ export default function ProfilePage() {
                     <span className="amount text-[17px]" style={{ color: netColor(r.net) }}>
                       {formatNet(r.net)}
                     </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+          {property && property.games > 0 && (
+            <>
+              <div className="px-5 pt-6 text-[15px] font-extrabold">Property games</div>
+              <div className="mx-4 mt-2.5 grid grid-cols-2 gap-2">
+                {[
+                  { k: "GAMES", v: String(property.games) },
+                  { k: "WINS", v: String(property.wins) },
+                  { k: "AVERAGE PLACE", v: property.avgFinish === null ? "—" : String(property.avgFinish) },
+                  { k: "RENT EARNED", v: property.rentEarned.toLocaleString("en-IN") },
+                ].map((x) => (
+                  <div key={x.k} className="rounded-[18px] border border-line bg-surface p-3.5">
+                    <div className="text-[10.5px] font-extrabold tracking-[.12em] text-ink3">{x.k}</div>
+                    <div className="amount mt-0.5 text-[28px]">{x.v}</div>
                   </div>
                 ))}
               </div>

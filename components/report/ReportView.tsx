@@ -5,10 +5,12 @@ import { useState } from "react";
 import type { api } from "@/convex/_generated/api";
 import { clock } from "@/lib/feed";
 import { formatDay, formatInr, formatNet, netColor } from "@/lib/format";
+import { formatMoney, formatReal, ordinal } from "@/lib/monopoly/money";
 import { TEAMS } from "@/lib/seats";
 
 export type ReportData = FunctionReturnType<typeof api.report.full>;
 type GameRow = ReportData["games"][number];
+type MonoGameRow = NonNullable<ReportData["mono"]>["games"][number];
 
 /** screen: interactive. print: PDF copy, everything expanded. image: compact, for sharing. */
 export type ReportVariant = "screen" | "print" | "image";
@@ -26,6 +28,42 @@ function Heading({ children }: { children: React.ReactNode }) {
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <div className={`avoid-break mx-4 mt-2.5 rounded-[20px] border border-line bg-surface ${className}`}>{children}</div>;
+}
+
+/** A property game: places, the real-money payout, and rent. */
+function MonoGameBlock({ g }: { g: MonoGameRow }) {
+  const fmt = (n: number) => formatMoney(n, g.currency as "$" | "₹");
+  const verdict =
+    g.status === "cancelled" ? "Cancelled · stakes refunded" : g.status === "ended" ? `${g.players[0]?.name ?? "—"} won` : "In play";
+  return (
+    <div className="avoid-break border-b border-line px-4 py-3 last:border-b-0">
+      <div className="flex items-baseline justify-between gap-3">
+        <div>
+          <div className="text-sm font-extrabold">
+            #{g.no} Property · {g.board}
+          </div>
+          <div className="text-xs font-semibold text-ink3">{verdict}</div>
+        </div>
+        <div className="amount text-[19px]">{g.buyIn > 0 && g.status !== "cancelled" ? formatReal(g.pot) : "—"}</div>
+      </div>
+      <div className="mt-2 flex flex-col gap-1.5">
+        {g.players.map((l) => (
+          <div key={l.name} className="flex justify-between gap-3 text-[13px]">
+            <span className="font-semibold text-ink2">
+              {l.position ? `${ordinal(l.position)} · ` : ""}
+              {l.name}
+              {l.rentEarned > 0 ? ` · rent ${fmt(l.rentEarned)}` : ""}
+            </span>
+            {g.buyIn > 0 && g.status === "ended" && (
+              <span className="font-extrabold tabular-nums" style={{ color: netColor(l.stakeNet) }}>
+                {formatNet(l.stakeNet)}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function GameBlock({ g, open, onToggle, variant }: { g: GameRow; open: boolean; onToggle: () => void; variant: ReportVariant }) {
@@ -207,8 +245,23 @@ export function ReportView({
         </div>
       </div>
 
-      <Heading>Games · {totals.games}</Heading>
-      {games.length === 0 ? (
+      {data.mono && (
+        <>
+          <Heading>Property games · {data.mono.games.filter((g) => g.status === "ended").length}</Heading>
+          {data.mono.games.length === 0 ? (
+            <Card className="px-4 py-5 text-center text-sm text-ink3">No games played yet.</Card>
+          ) : (
+            <Card className="overflow-hidden">
+              {data.mono.games.map((g) => (
+                <MonoGameBlock key={g.no} g={g} />
+              ))}
+            </Card>
+          )}
+        </>
+      )}
+
+      {!data.mono && <Heading>Games · {totals.games}</Heading>}
+      {data.mono ? null : games.length === 0 ? (
         <Card className="px-4 py-5 text-center text-sm text-ink3">No games played yet.</Card>
       ) : (
         <Card className="overflow-hidden">

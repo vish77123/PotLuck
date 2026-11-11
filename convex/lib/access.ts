@@ -50,6 +50,11 @@ export async function requireHost(ctx: Ctx, sessionId: Id<"sessions">) {
   return pc;
 }
 
+/** Pool-only functions (wallets, loans, pool games) refuse a Monopoly session instead of half-working on it. */
+export function requirePoolSession(session: Doc<"sessions">) {
+  if (session.type === "monopoly") fail("WRONG_SESSION_TYPE", "This is a property game. That action is for card-game tables.");
+}
+
 export async function requireCrewAccess(ctx: Ctx, crewId: Id<"crews">) {
   const userId = await requireUser(ctx);
   const crew = await ctx.db.get(crewId);
