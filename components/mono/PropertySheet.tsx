@@ -6,6 +6,7 @@ import { useGameState, useMoney, type MonoGame, type MonoPlayer } from "@/compon
 import { Avatar } from "@/components/ui/Avatar";
 import { GoldButton } from "@/components/ui/controls";
 import { Sheet } from "@/components/ui/Sheet";
+import { ShortNotice } from "@/components/mono/MonoSheets";
 import { GROUP_COLOURS, GROUP_LABELS, groupKeyOf } from "@/lib/monopoly/colors";
 import { canBuild, canMortgage, canSellBuilding, canUnmortgage, levelOf, ownsFullGroup, rentFor, spaceOf } from "@/lib/monopoly/rules";
 
@@ -135,7 +136,7 @@ export function PropertySheet({ open, onClose, game, me, spaceId, isHost }: { op
                   Pay {owner.name} {fmt(rentDue.amount)}
                 </GoldButton>
               </div>
-              {me && rentDue.amount > me.cash && <div className="mt-2 text-[13px] font-semibold text-down">You have only {fmt(me.cash)}. Sell or mortgage something to raise {fmt(rentDue.amount - me.cash)} more.</div>}
+              {me && rentDue.amount > me.cash && <ShortNotice text={`You have only ${fmt(me.cash)}. ${fmt(rentDue.amount - me.cash)} more is needed.`} needed={rentDue.amount} onClose={onClose} />}
             </>
           )}
         </div>
@@ -147,7 +148,7 @@ export function PropertySheet({ open, onClose, game, me, spaceId, isHost }: { op
           <GoldButton pending={actions.pending} disabled={!me || me.cash < price} onClick={() => run({ kind: "buy", spaceId }, `Bought ${space.name}`)}>
             Buy for {fmt(price)}
           </GoldButton>
-          {me && me.cash < price && <div className="mt-2 text-[13px] font-semibold text-down">You have only {fmt(me.cash)}. {fmt(price - me.cash)} more is needed.</div>}
+          {me && me.cash < price && <ShortNotice text={`You have only ${fmt(me.cash)}. ${fmt(price - me.cash)} more is needed.`} needed={price} onClose={onClose} />}
           {game.settings.auctions && (
             <button
               disabled={actions.pending || !!game.auction}

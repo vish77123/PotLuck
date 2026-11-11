@@ -4,18 +4,22 @@ import { useState } from "react";
 import { AuctionSheet } from "@/components/mono/AuctionSheet";
 import { MonoBoardTab, MyDeeds } from "@/components/mono/MonoBoardTab";
 import { CardsSheet, JailSheet } from "@/components/mono/MonoCards";
+import { BankruptcySheet, EndGameSheet, RaiseMoneySheet } from "@/components/mono/MonoEnd";
+import { useRaise } from "@/components/mono/raiseStore";
 import { MonoFeed } from "@/components/mono/MonoFeed";
 import { BankSheet, GoSheet, PaySheet } from "@/components/mono/MonoSheets";
 import { PropertySheet } from "@/components/mono/PropertySheet";
 import { TradeSheet } from "@/components/mono/TradeSheet";
 import { sideText } from "@/components/mono/trade";
 import { useMonoActions } from "@/components/mono/actions";
-import { useMoney, type MonoGame, type MonoPlayer, type MonoRequest, type MonoState } from "@/components/mono/types";
+import { useGameState, useMoney, type MonoGame, type MonoPlayer, type MonoRequest, type MonoState } from "@/components/mono/types";
 import { Avatar } from "@/components/ui/Avatar";
 import { BackButton } from "@/components/ui/controls";
 import { Dialog } from "@/components/ui/Dialog";
 import { useNow } from "@/hooks/useNow";
 import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
+import { gameIsOver } from "@/lib/monopoly/engine";
+import { ordinal } from "@/lib/monopoly/money";
 
 type Tab = "me" | "board" | "bank" | "feed";
 type SheetKind = "go" | "pay" | "request" | "bankIn" | "bankOut" | "trade" | "card" | "jail" | null;
@@ -116,6 +120,11 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
   const [tab, setTab] = useState<Tab>("me");
   const [sheet, setSheet] = useState<SheetKind>(null);
   const [cancelAsk, setCancelAsk] = useState(false);
+  const gs = useGameState(game);
+  const raiseNeeded = useRaise((r) => r.needed);
+  const closeRaise = useRaise((r) => r.close);
+  const [bankruptOpen, setBankruptOpen] = useState(false);
+  const [endOpen, setEndOpen] = useState(false);
   const [auctionHiddenFor, setAuctionHiddenFor] = useState<string | null>(null);
   const auctionHidden = !!game.auction && auctionHiddenFor === game.auction._id;
   const [spaceId, setSpaceId] = useState<string | null>(null);
@@ -165,7 +174,7 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
                 </div>
                 <div className="mt-1 text-[12.5px] font-semibold text-on-felt2">
                   {isBanker ? "You're the banker · " : ""}
-                  {me.inJail ? `In jail · turn ${me.jailTurns + 1}` : game.settings.stakes.buyIn > 0 ? `Playing for real ₹${game.settings.stakes.buyIn.toLocaleString("en-IN")} each` : "Play money"}
+                  {me.status === "bankrupt" ? "Out of the game" : me.inJail ? `In jail · turn ${me.jailTurns + 1}` : game.settings.stakes.buyIn > 0 ? `Playing for real ₹${game.settings.stakes.buyIn.toLocaleString("en-IN")} each` : "Play money"}
                 </div>
               </div>
             </div>
@@ -218,7 +227,25 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
             </div>
           )}
 
-          {me?.inJail && (
+          {me && me.status === "bankrupt" && (
+            <div className="mx-4 mt-3 rounded-[18px] border border-line-gold bg-surface p-3.5 text-[13.5px] font-extrabold">
+              You're out of the game{me.finishPosition ? `, finishing ${ordinal(me.finishPosition)}` : ""}. You can keep watching.
+            </div>
+          )}
+          {me && me.status === "playing" && me.owes && now - me.owes.at < 5 * 60 * 1000 && me.cash < me.owes.needed && (
+            <div className="mx-4 mt-3 rounded-[18px] border border-down bg-surface p-3.5">
+              <div className="text-[13.5px] font-extrabold">A card needs {fmt(me.owes.needed)} from you. You have {fmt(me.cash)}.</div>
+              <div className="mt-2.5 flex gap-2">
+                <button onClick={() => useRaise.getState().open(me.owes!.needed)} className="gold-btn press h-10 rounded-xl px-4 text-[13px]">
+                  Raise money
+                </button>
+                <button onClick={() => actions.clearShort()} className="press h-10 rounded-xl border border-line px-4 text-[13px] font-bold text-ink2">
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
+          {me?.inJail && me.status === "playing" && (
             <button onClick={() => setSheet("jail")} className="press mx-4 mt-3 flex w-[calc(100%-32px)] items-center gap-3 rounded-[18px] border border-line-gold bg-surface p-3.5 text-left">
               <span className="grid h-9 w-9 flex-none place-items-center rounded-full bg-gold text-[13px] font-black text-on-gold">⛓</span>
               <span className="flex-1 text-[13.5px] font-extrabold">You're in jail · turn {me.jailTurns + 1}. Tap for your options.</span>
@@ -231,7 +258,7 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
             </button>
           )}
 
-          {me && (
+          {me && me.status === "playing" && (
             <div className="mx-4 mt-4 grid grid-cols-2 gap-2.5">
               <ActionButton gold title="Pass GO" sub={`+${fmt(game.boardSnapshot.passGo)}`} disabled={paused} onClick={() => setSheet("go")} />
               <ActionButton title="Pay a player" sub="Instant" disabled={paused} onClick={() => setSheet("pay")} />
@@ -272,6 +299,13 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
               </div>
             ))}
           </div>
+          {me && me.status === "playing" && (
+            <div className="mt-6 text-center">
+              <button onClick={() => setBankruptOpen(true)} className="press h-11 rounded-xl border border-down px-4 text-[13px] font-bold text-down">
+                Declare bankruptcy
+              </button>
+            </div>
+          )}
         </>
       )}
 
@@ -352,7 +386,16 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
           )}
 
           {isHost && (
-            <div className="mx-4 mt-8 text-center">
+            <div className="mx-4 mt-8 grid gap-2.5 text-center">
+              {gameIsOver(gs) ? (
+                <button disabled={actions.pending} onClick={() => actions.finishGame()} className="gold-btn press h-12 rounded-xl text-[14px]">
+                  Finish the game
+                </button>
+              ) : (
+                <button onClick={() => setEndOpen(true)} className="press h-12 rounded-xl border border-line-gold text-[14px] font-bold text-gold-ink">
+                  End the game early
+                </button>
+              )}
               <button onClick={() => setCancelAsk(true)} className="press h-11 rounded-xl border border-down px-4 text-[13px] font-bold text-down">
                 Cancel this game
               </button>
@@ -392,6 +435,11 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
 
       <PropertySheet open={spaceOpen} onClose={() => setSpaceOpen(false)} game={game} me={me} spaceId={spaceId} isHost={isHost} />
       <AuctionSheet open={!!game.auction && !auctionHidden} onClose={() => setAuctionHiddenFor(game.auction?._id ?? null)} game={game} me={me} isHost={isHost} />
+      {me && me.status === "playing" && raiseNeeded !== null && (
+        <RaiseMoneySheet open onClose={closeRaise} game={game} me={me} needed={raiseNeeded} onBankrupt={() => { closeRaise(); setBankruptOpen(true); }} />
+      )}
+      {me && me.status === "playing" && <BankruptcySheet open={bankruptOpen} onClose={() => setBankruptOpen(false)} game={game} me={me} />}
+      {isHost && <EndGameSheet open={endOpen} onClose={() => setEndOpen(false)} game={game} />}
       {me && (
         <>
           <TradeSheet open={sheet === "trade"} onClose={close} game={game} me={me} />

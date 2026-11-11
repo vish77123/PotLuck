@@ -5,6 +5,7 @@ import type { FunctionArgs } from "convex/server";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { GameOver } from "@/components/mono/MonoEnd";
 import { MonoSeats } from "@/components/mono/MonoSeats";
 import type { MonoGame, MonoState } from "@/components/mono/types";
 import { RoomCard } from "@/components/lobby/RoomCard";
@@ -192,7 +193,9 @@ export function MonoLobby({ code, state, game }: { code: string; state: MonoStat
         })}
       </div>
 
-      {!inSetup && (
+      {game.status === "ended" && <GameOver code={code} state={state} game={game} />}
+
+      {game.status === "cancelled" && (
         <Card>
           <div className="font-display text-[22px] font-semibold">{game.status === "cancelled" ? "Game cancelled" : "Game over"}</div>
           <div className="mt-1 text-sm text-ink2">{game.status === "cancelled" ? "Nothing was paid out and the buy-ins were refunded." : "The result is in the session report."}</div>

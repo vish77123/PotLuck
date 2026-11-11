@@ -2,6 +2,31 @@
 
 Branch `monopoly`. Nothing here is deployed to production. The README gets its Monopoly section in milestone 6.
 
+## Milestone 5 status
+
+Raise money, bankruptcy, finishing places, game over, the stakes payout into the existing report and settle-up, and
+lifetime property-game stats work. Not yet built: the net-worth leaderboard tab, the table display, pause and resume, the
+Playwright test and the 1,000-action Convex-level randomized test (milestone 6).
+
+- **Raise money:** when a payment fails because a player is short, the phone opens a sheet listing what they can sell or
+  mortgage and what each raises, with a progress bar. A card that collects from everyone fails with the short player named;
+  that phone flags them (`mono.flagShort`) and their own phone shows a "raise money" banner. If even selling everything
+  can't cover it, the sheet offers bankruptcy.
+- **Bankruptcy** (`mono.declareBankruptcy`): to a player (buildings sold at half cost, then everything to them, 10% interest on
+  mortgaged deeds, refused if the creditor can't pay it) or to the bank (cash to the bank, deeds back unmortgaged and, with
+  auctions on, auctioned one after another through the auction `queue`). The player or the host can do it. Their open
+  requests are cancelled and the turn moves on. The first player out takes the last place; the last one standing wins.
+- **Ending:** the last player standing closes the game automatically. The host can also end early (`mono.endGameEarly`):
+  places start from net worth and can be reordered. Closing a game pays the real-money stakes by place
+  (`MONO_PAYOUT`, leftover rupees to 1st), writes one `mGameSummaries` row per player (place, rent earned and paid, stake
+  net) and cancels open requests and auctions. Because `computeNets` already counts stakes, the existing settle-up and
+  session report show the result with no other change; the report gains a "Property games" section and its totals count
+  property games.
+- **Reopen** (`mono.reopenGame`): reverses the payouts, removes the summaries and makes the game live, so the host can undo
+  the last move and play on. Undo is refused while an auction is running.
+- **Stats** (`convex/monoStats.ts`): games, wins, average finish, total rent earned and stake net per member, shown on the
+  crew page and a player's profile. Rent excludes undone payments (undo events are marked `undo`).
+
 ## Milestone 4 status
 
 Trades, auctions, card actions, jail and the Free Parking pot work. Not yet built: raise-money flow, bankruptcy, game over,

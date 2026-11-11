@@ -7,8 +7,27 @@ import { AmountStepper } from "@/components/ui/AmountStepper";
 import { Avatar } from "@/components/ui/Avatar";
 import { GoldButton } from "@/components/ui/controls";
 import { Sheet } from "@/components/ui/Sheet";
+import { useRaise } from "@/components/mono/raiseStore";
 
 const CHIPS = [10, 20, 50, 100, 200, 500];
+
+/** "You have only $X": a dead end turned into the raise-money flow. Closes the sheet it's in first. */
+export function ShortNotice({ text, needed, onClose }: { text: string; needed: number; onClose: () => void }) {
+  return (
+    <div className="mt-3 rounded-[14px] border border-down px-3.5 py-2.5">
+      <div className="text-[13px] font-semibold text-down">{text}</div>
+      <button
+        onClick={() => {
+          onClose();
+          useRaise.getState().open(needed);
+        }}
+        className="press mt-2 h-9 rounded-lg border border-down px-3 text-[12.5px] font-bold text-down"
+      >
+        Raise money
+      </button>
+    </div>
+  );
+}
 
 function Chips({ value, onPick, fmt }: { value: number; onPick: (n: number) => void; fmt: (n: number) => string }) {
   return (
@@ -90,11 +109,7 @@ export function PaySheet({
         <AmountStepper label="Amount" value={amount} onChange={setAmount} step={10} min={0} size="lg" format={fmt} />
       </div>
       <Chips value={amount} onPick={setAmount} fmt={fmt} />
-      {short && (
-        <div className="mt-3 rounded-[14px] border border-down px-3.5 py-2.5 text-[13px] font-semibold text-down">
-          You have only {fmt(me.cash)}. Sell or mortgage something to raise {fmt(amount - me.cash)} more.
-        </div>
-      )}
+      {short && <ShortNotice text={`You have only ${fmt(me.cash)}. ${fmt(amount - me.cash)} more is needed.`} needed={amount} onClose={onClose} />}
       <div className="mt-4">
         <GoldButton pending={actions.pending} disabled={!target || amount <= 0 || short} onClick={submit}>
           {!target ? "Pick a player" : mode === "pay" ? `Pay ${target.name} ${fmt(amount)}` : `Ask ${target.name} for ${fmt(amount)}`}
@@ -183,11 +198,8 @@ export function BankSheet({
         <AmountStepper label="Amount" value={amount} onChange={setAmount} step={10} min={0} size="lg" format={fmt} />
       </div>
       <Chips value={amount} onPick={setAmount} fmt={fmt} />
-      {short && (
-        <div className="mt-3 rounded-[14px] border border-down px-3.5 py-2.5 text-[13px] font-semibold text-down">
-          {target.name} has only {fmt(target.cash)}. {fmt(amount - target.cash)} more is needed.
-        </div>
-      )}
+      {short && target._id === me._id && <ShortNotice text={`You have only ${fmt(me.cash)}. ${fmt(amount - me.cash)} more is needed.`} needed={amount} onClose={onClose} />}
+      {short && target._id !== me._id && <div className="mt-3 rounded-[14px] border border-down px-3.5 py-2.5 text-[13px] font-semibold text-down">{target.name} has only {fmt(target.cash)}. {fmt(amount - target.cash)} more is needed.</div>}
       <div className="mt-4">
         <GoldButton pending={actions.pending} disabled={amount <= 0 || short} onClick={submit}>
           {mode === "pay" ? `Pay ${fmt(amount)}` : `Collect ${fmt(amount)}`}

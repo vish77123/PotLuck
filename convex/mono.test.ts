@@ -1244,3 +1244,317 @@ describe("auctions", () => {
     await expectError(late.mutation(api.mono.bid, { auctionId, amount: 10, idempotencyKey: key() }), "FORBIDDEN");
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Milestone 5: bankruptcy, the end of a game, stakes, stats
+// ---------------------------------------------------------------------------------------------
+
+const bankrupt = (s: Table, who: string, creditor: string | null, as = who) =>
+  s.seats[as].as.mutation(api.mono.declareBankruptcy, { gameId: s.gameId, playerId: id(s, who), creditorId: creditor ? id(s, creditor) : null, idempotencyKey: key() });
+const gameOf = async (t: T, s: Table) => (await t.run((ctx) => ctx.db.get(s.gameId)))!;
+const stateOf = async (s: Table) => (await s.host.as.query(api.mono.state, { sessionId: s.sessionId })).game!;
+const netsOf = async (s: Table) => {
+  const { nets, transfers } = await s.host.as.query(api.report.settlement, { sessionId: s.sessionId });
+  return { byName: Object.fromEntries(nets.map((n) => [n.name, n.net])), transfers };
+};
+
+describe("bankruptcy", () => {
+  test("to a player: buildings sold at half cost, then cash, deeds and cards go to the creditor", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"], { settings: { startingCash: 3000 } });
+    await ownSet(s, "Priya");
+    for (const n of ORANGE) await perform(s, "Priya", { kind: "build", spaceId: sp(n) });
+    await perform(s, "Priya", { kind: "drawJailCard" });
+    const before = await cashOf(t, s);
+    await bankrupt(s, "Priya", "Meera");
+    const after = await cashOf(t, s);
+    // Priya's cash after the three builds and the three deeds, plus 3 houses × $50, all go to Meera.
+    expect(after.Priya).toBe(0);
+    expect(after.Meera).toBe(before.Meera + before.Priya + 150);
+    for (const n of ORANGE) expect(await propOf(t, s, n)).toMatchObject({ owner: "Meera", houses: 0 });
+    expect(await jailOf(t, s, "Meera")).toMatchObject({ jailCards: 1 });
+    expect((await stateOf(s)).players.find((p) => p.name === "Priya")).toMatchObject({ status: "bankrupt", finishPosition: 3 });
+    expect((await gameOf(t, s)).status).toBe("active");
+    expect(await stock(t, s)).toEqual({ houses: 32, hotels: 12 });
+    await check(t, s);
+  });
+
+  test("the creditor pays 10% interest on any mortgaged property received", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    await buy(s, "Priya", "Power Co.");
+    await perform(s, "Priya", { kind: "mortgage", spaceId: sp("Power Co.") });
+    const before = (await cashOf(t, s)).Meera;
+    const priya = (await cashOf(t, s)).Priya;
+    await bankrupt(s, "Priya", "Meera");
+    expect((await cashOf(t, s)).Meera).toBe(before + priya - 8);
+    expect(await propOf(t, s, "Power Co.")).toMatchObject({ owner: "Meera", mortgaged: true });
+    await check(t, s);
+  });
+
+  test("a creditor who can't cover the interest blocks it until they raise money", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    await buy(s, "Priya", "North Stn");
+    await perform(s, "Priya", { kind: "mortgage", spaceId: sp("North Stn") });
+    await perform(s, "Priya", { kind: "pay", toPlayerId: id(s, "Arjun"), amount: (await cashOf(t, s)).Priya });
+    await perform(s, "Meera", { kind: "pay", toPlayerId: id(s, "Arjun"), amount: 1500 });
+    const e = await expectError(bankrupt(s, "Priya", "Meera"), "INSUFFICIENT_BALANCE");
+    expect(e).toMatchObject({ detail: { playerId: id(s, "Meera"), needed: 10 } });
+  });
+
+  test("to the bank with auctions on: the deeds go up for auction one after another", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    await buy(s, "Priya", "Market Sq");
+    await buy(s, "Priya", "Mill Lane");
+    await perform(s, "Priya", { kind: "mortgage", spaceId: sp("Mill Lane") });
+    await bankrupt(s, "Priya", null);
+    expect(await propOf(t, s, "Market Sq")).toMatchObject({ owner: null });
+    expect(await propOf(t, s, "Mill Lane")).toMatchObject({ owner: null, mortgaged: false });
+    const first = (await auctionOf(t, s))!;
+    // Board order: Mill Lane comes before Market Sq.
+    expect(first).toMatchObject({ status: "open", spaceId: sp("Mill Lane"), queue: [sp("Market Sq")] });
+    await t.run((ctx) => ctx.db.patch(first._id, { endsAt: Date.now() - 1 }));
+    await t.mutation(internal.mono.closeAuction, { auctionId: first._id });
+    expect(await auctionOf(t, s)).toMatchObject({ status: "open", spaceId: sp("Market Sq"), queue: [] });
+    await check(t, s);
+  });
+
+  test("with auctions off the deeds just go back to the bank", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    await t.run(async (ctx) => {
+      const g = (await ctx.db.get(s.gameId))!;
+      await ctx.db.patch(s.gameId, { settings: { ...g.settings, auctions: false } });
+    });
+    await buy(s, "Priya", "Market Sq");
+    await bankrupt(s, "Priya", null);
+    expect(await auctionOf(t, s)).toBeNull();
+    expect((await propOf(t, s, "Market Sq")).owner).toBeNull();
+  });
+
+  test("only the player or the host can do it, and the turn moves on if it was theirs", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    await expectError(bankrupt(s, "Priya", null, "Meera"), "FORBIDDEN");
+    await bankrupt(s, "Arjun", "Priya", "Arjun"); // Arjun has the turn
+    expect((await gameOf(t, s)).currentTurnPlayerId).toBe(id(s, "Priya"));
+    await expectError(perform(s, "Arjun", { kind: "passGo" }), "INVALID_STATE", /out of this game/);
+    // A host who is out of the game can still put another player out; with two gone, Priya wins.
+    const r = await bankrupt(s, "Meera", "Priya", "Arjun");
+    expect(r.gameOver).toBe(true);
+    expect((await gameOf(t, s)).status).toBe("ended");
+  });
+
+  test("their open requests are cancelled", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    const { requestId } = await s.seats.Priya.as.mutation(api.mono.requestPayment, { gameId: s.gameId, fromPlayerId: id(s, "Meera"), amount: 50, idempotencyKey: key() });
+    await bankrupt(s, "Meera", "Arjun");
+    expect((await t.run((ctx) => ctx.db.get(requestId)))!.status).toBe("cancelled");
+  });
+});
+
+describe("the end of a game and the stakes", () => {
+  const stakes = { buyIn: 500, split: [70, 30] };
+
+  test("the last player standing wins; the stakes pay out by place; nets add up to zero; settle-up pays the winner", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"], { settings: stakes });
+    await bankrupt(s, "Meera", "Priya");
+    expect((await gameOf(t, s)).status).toBe("active");
+    const r = await bankrupt(s, "Arjun", "Priya");
+    expect(r.gameOver).toBe(true);
+    expect((await gameOf(t, s)).status).toBe("ended");
+    const g = await stateOf(s);
+    expect(Object.fromEntries(g.players.map((p) => [p.name, p.finishPosition]))).toEqual({ Arjun: 2, Priya: 1, Meera: 3 });
+    // Pot ₹1,500: 1st ₹1,050, 2nd ₹450, 3rd nothing. Net = payout − ₹500 buy-in.
+    const { byName, transfers } = await netsOf(s);
+    expect(byName).toEqual({ Arjun: -50, Priya: 550, Meera: -500 });
+    expect(transfers!.reduce((sum, x) => sum + x.amount, 0)).toBe(550);
+    expect(g.summaries.map((x) => x.stakeNet).sort((a, b) => a - b)).toEqual([-500, -50, 550]);
+    await t.query(internal.invariants.assertSessionInvariants, { sessionId: s.sessionId });
+    await check(t, s);
+  });
+
+  test("winner takes all", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"], { settings: { buyIn: 200, split: [100] } });
+    await bankrupt(s, "Priya", "Arjun");
+    expect((await netsOf(s)).byName).toEqual({ Arjun: 200, Priya: -200 });
+  });
+
+  test("no stakes means nothing is paid, and a finished game takes no more moves", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await bankrupt(s, "Priya", "Arjun");
+    expect((await netsOf(s)).byName).toEqual({ Arjun: 0, Priya: 0 });
+    await expectError(perform(s, "Arjun", { kind: "passGo" }), "INVALID_STATE", /isn't in progress/);
+  });
+
+  test("the host can end early: places by net worth, or an order they choose", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"], { settings: { buyIn: 300, split: [60, 40] } });
+    await buy(s, "Priya", "Market Sq"); // Priya keeps the most value
+    await perform(s, "Meera", { kind: "pay", toPlayerId: id(s, "Arjun"), amount: 600 });
+    await expectError(s.seats.Priya.as.mutation(api.mono.endGameEarly, { gameId: s.gameId, idempotencyKey: key() }), "NOT_HOST");
+    await expectError(s.host.as.mutation(api.mono.endGameEarly, { gameId: s.gameId, order: [id(s, "Arjun")], idempotencyKey: key() }), "INVALID_STATE", /every player/);
+    await s.host.as.mutation(api.mono.endGameEarly, { gameId: s.gameId, order: [id(s, "Meera"), id(s, "Arjun"), id(s, "Priya")], idempotencyKey: key() });
+    const g = await stateOf(s);
+    expect(g.status).toBe("ended");
+    expect(Object.fromEntries(g.players.map((p) => [p.name, p.finishPosition]))).toEqual({ Meera: 1, Arjun: 2, Priya: 3 });
+    // Pot ₹900: 1st ₹540, 2nd ₹360.
+    expect((await netsOf(s)).byName).toEqual({ Meera: 240, Arjun: 60, Priya: -300 });
+    await check(t, s);
+  });
+
+  test("by default early places follow net worth", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    await buy(s, "Meera", "Grand Esplanade");
+    await perform(s, "Arjun", { kind: "pay", toPlayerId: id(s, "Meera"), amount: 400 });
+    await s.host.as.mutation(api.mono.endGameEarly, { gameId: s.gameId, idempotencyKey: key() });
+    const g = await stateOf(s);
+    expect(g.players.find((p) => p.name === "Meera")!.finishPosition).toBe(1);
+    expect(g.players.find((p) => p.name === "Arjun")!.finishPosition).toBe(3);
+  });
+
+  test("reopening reverses the payouts and the summaries; undo the last move, play on, finish again", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"], { settings: { buyIn: 100, split: [100] } });
+    await bankrupt(s, "Priya", "Arjun");
+    expect((await netsOf(s)).byName).toEqual({ Arjun: 100, Priya: -100 });
+    await expectError(s.seats.Priya.as.mutation(api.mono.reopenGame, { gameId: s.gameId, idempotencyKey: key() }), "NOT_HOST");
+    await s.host.as.mutation(api.mono.reopenGame, { gameId: s.gameId, idempotencyKey: key() });
+    expect((await gameOf(t, s)).status).toBe("active");
+    expect((await netsOf(s)).byName).toEqual({ Arjun: -100, Priya: -100 });
+    expect((await stateOf(s)).summaries).toHaveLength(0);
+    // Undo the bankruptcy and the game carries on.
+    const last = (await stateOf(s)).events.find((e) => e.type !== "TURN" && e.type !== "NOTE" && !e.reversesGroupId)!.groupId;
+    await s.host.as.mutation(api.mono.undo, { gameId: s.gameId, groupId: last, idempotencyKey: key() });
+    expect((await stateOf(s)).players.every((p) => p.status === "playing")).toBe(true);
+    await bankrupt(s, "Arjun", "Priya");
+    expect((await netsOf(s)).byName).toEqual({ Arjun: -100, Priya: 100 });
+    await t.query(internal.invariants.assertSessionInvariants, { sessionId: s.sessionId });
+    await check(t, s);
+  });
+
+  test("finishGame refuses while someone has no place", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await expectError(s.host.as.mutation(api.mono.finishGame, { gameId: s.gameId, idempotencyKey: key() }), "INVALID_STATE", /finishing place/);
+  });
+
+  test("a running auction blocks undo; ending the game closes the auction and cancels requests", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await perform(s, "Priya", { kind: "bankCollect", amount: 10 });
+    const group = (await stateOf(s)).events[0].groupId;
+    const { auctionId } = await s.seats.Arjun.as.mutation(api.mono.startAuction, { gameId: s.gameId, spaceId: sp("Market Sq"), idempotencyKey: key() });
+    await expectError(s.host.as.mutation(api.mono.undo, { gameId: s.gameId, groupId: group, idempotencyKey: key() }), "INVALID_STATE", /running auction/);
+    const { requestId } = await s.seats.Arjun.as.mutation(api.mono.requestPayment, { gameId: s.gameId, fromPlayerId: id(s, "Priya"), amount: 5, idempotencyKey: key() });
+    await bankrupt(s, "Priya", "Arjun");
+    expect((await t.run((ctx) => ctx.db.get(auctionId)))!.status).toBe("unsold");
+    expect((await t.run((ctx) => ctx.db.get(requestId)))!.status).toBe("cancelled");
+  });
+});
+
+describe("rent stats and raise-money flag", () => {
+  test("summaries count rent earned and paid, and ignore undone rent", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    await buy(s, "Arjun", "Market Sq");
+    await perform(s, "Priya", { kind: "rent", spaceId: sp("Market Sq") });
+    await perform(s, "Meera", { kind: "rent", spaceId: sp("Market Sq") });
+    const undone = (await stateOf(s)).events[0].groupId;
+    await s.host.as.mutation(api.mono.undo, { gameId: s.gameId, groupId: undone, idempotencyKey: key() });
+    await bankrupt(s, "Meera", "Arjun");
+    await bankrupt(s, "Priya", "Arjun");
+    const g = await stateOf(s);
+    const byName = Object.fromEntries(g.summaries.map((x) => [g.players.find((p) => p.sessionPlayerId === x.sessionPlayerId)!.name, x]));
+    expect(byName.Arjun).toMatchObject({ finishPosition: 1, rentEarned: 14, rentPaid: 0 });
+    expect(byName.Priya).toMatchObject({ finishPosition: 3 === 3 ? 2 : 0, rentPaid: 14 });
+    expect(byName.Meera).toMatchObject({ finishPosition: 3, rentPaid: 0 });
+  });
+
+  test("a short player is flagged for the raise-money flow, only when really short", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    const flag = (who: string, needed: number) => s.seats.Arjun.as.mutation(api.mono.flagShort, { gameId: s.gameId, playerId: id(s, who), needed });
+    await flag("Priya", 1000); // she has 1,500
+    expect((await t.run((ctx) => ctx.db.get(id(s, "Priya"))))!.owes).toBeUndefined();
+    await flag("Priya", 2000);
+    expect((await t.run((ctx) => ctx.db.get(id(s, "Priya"))))!.owes).toMatchObject({ needed: 2000 });
+    await s.seats.Priya.as.mutation(api.mono.clearShort, { gameId: s.gameId });
+    expect((await t.run((ctx) => ctx.db.get(id(s, "Priya"))))!.owes).toBeUndefined();
+  });
+});
+
+describe("property-game stats and the report", () => {
+  async function playedGame(t: T, names = ["Arjun", "Priya", "Meera"]) {
+    const s = await monoTable(t, names, { settings: { buyIn: 100, split: [100] } });
+    await buy(s, "Arjun", "Market Sq");
+    await perform(s, "Priya", { kind: "rent", spaceId: sp("Market Sq") });
+    await bankrupt(s, "Meera", "Arjun");
+    await bankrupt(s, "Priya", "Arjun");
+    return s;
+  }
+
+  test("the crew leaderboard counts games, wins, average finish and rent earned", async () => {
+    const t = setup();
+    const s = await playedGame(t);
+    const crewId = (await t.run((ctx) => ctx.db.get(s.sessionId)))!.crewId;
+    const board = await s.host.as.query(api.monoStats.leaderboard, { crewId });
+    expect(board.map((r) => [r.name, r.games, r.wins, r.avgFinish, r.rentEarned])).toEqual([
+      ["Arjun", 1, 1, 1, 14],
+      ["Priya", 1, 0, 2, 0],
+      ["Meera", 1, 0, 3, 0],
+    ]);
+    expect(board[0].stakeNet).toBe(200);
+    const memberId = (await t.run((ctx) => ctx.db.query("crewMembers").withIndex("by_crew", (q) => q.eq("crewId", crewId)).collect())).find((m) => m.name === "Priya")!._id;
+    expect(await s.host.as.query(api.monoStats.profile, { crewId, memberId })).toMatchObject({ games: 1, wins: 0, avgFinish: 2, recent: [{ position: 2, players: 3 }] });
+    await expectError((await newDevice(t)).query(api.monoStats.leaderboard, { crewId }), "FORBIDDEN");
+  });
+
+  test("a second game builds up the averages", async () => {
+    const t = setup();
+    const s = await playedGame(t);
+    await s.host.as.mutation(api.mono.newGame, { sessionId: s.sessionId });
+    const state = await s.host.as.query(api.mono.state, { sessionId: s.sessionId });
+    await s.host.as.mutation(api.mono.start, { gameId: state.game!._id, idempotencyKey: key() });
+    const g2 = (await s.host.as.query(api.mono.state, { sessionId: s.sessionId })).game!;
+    const mp = (n: string) => g2.players.find((p) => p.name === n)!._id;
+    await s.seats.Arjun.as.mutation(api.mono.declareBankruptcy, { gameId: g2._id, creditorId: mp("Priya"), idempotencyKey: key() });
+    await s.seats.Meera.as.mutation(api.mono.declareBankruptcy, { gameId: g2._id, creditorId: mp("Priya"), idempotencyKey: key() });
+    const crewId = (await t.run((ctx) => ctx.db.get(s.sessionId)))!.crewId;
+    const board = await s.host.as.query(api.monoStats.leaderboard, { crewId });
+    const arjun = board.find((r) => r.name === "Arjun")!;
+    expect(arjun).toMatchObject({ games: 2, wins: 1, avgFinish: 2 });
+    expect(board.find((r) => r.name === "Priya")).toMatchObject({ games: 2, wins: 1, avgFinish: 1.5 });
+    await t.query(internal.invariants.assertSessionInvariants, { sessionId: s.sessionId });
+  });
+
+  test("the session report lists each game with places, payouts and rent, and settle-up follows the stakes", async () => {
+    const t = setup();
+    const s = await playedGame(t);
+    const report = await s.host.as.query(api.report.full, { sessionId: s.sessionId });
+    expect(report.mono!.games).toHaveLength(1);
+    const g = report.mono!.games[0];
+    expect(g).toMatchObject({ no: 1, status: "ended", board: "Classic", buyIn: 100, pot: 300 });
+    expect(g.players.map((p) => [p.name, p.position, p.payout, p.stakeNet])).toEqual([
+      ["Arjun", 1, 300, 200],
+      ["Priya", 2, 0, -100],
+      ["Meera", 3, 0, -100],
+    ]);
+    expect(report.totals).toEqual({ games: 1, moved: 300, biggestPot: 300 });
+    expect(report.players.map((p) => [p.name, p.net]).sort()).toEqual([["Arjun", 200], ["Meera", -100], ["Priya", -100]]);
+    expect(report.transfers!.reduce((x, y) => x + y.amount, 0)).toBe(200);
+  });
+
+  test("a pool report has no property section", async () => {
+    const t = setup();
+    const p = await table(t, ["Arjun", "Priya"]);
+    expect((await p.host.as.query(api.report.full, { sessionId: p.sessionId })).mono).toBeNull();
+  });
+});

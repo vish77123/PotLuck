@@ -6,7 +6,7 @@ import { insertCrew, upsertMember } from "./crews";
 import { requireCrewAccess, requireActivePlayer, requireHost, requirePlayer, requireUser } from "./lib/access";
 import { fail } from "./lib/errors";
 import { applyEntry, findReversal, reverseEntry, withIdempotency } from "./lib/ledger";
-import { applyMonopolyGroup, loadGame, loadGroups, myMonoPlayer, requireLive, rowToEvent, rules } from "./lib/mono";
+import { NON_GROUP_TYPES, applyMonopolyGroup, loadGame, loadGroups, myMonoPlayer, requireLive, rowToEvent, rules } from "./lib/mono";
 import { assertAmount, cleanName } from "./lib/validators";
 import { seatPlayer, uniqueCode, monoGameInProgress } from "./sessions";
 import { describeGroup } from "../lib/monopoly/describe";
@@ -16,11 +16,14 @@ import {
   gameViolations,
   invertEvents,
   planBankCollect,
+  gameIsOver,
+  planBankruptcy,
   planBuild,
   planBuy,
   planCardEveryPlayer,
   planCollectPot,
   planDrawJailCard,
+  planEndGame,
   planGoToJail,
   planJailTurn,
   planLeaveJail,
@@ -40,7 +43,9 @@ import {
 } from "../lib/monopoly/engine";
 import { crewBoard } from "./monoBoards";
 import { PRESETS } from "../lib/monopoly/presets";
-import { nextPlayer, validateSettings, validateSplit } from "../lib/monopoly/rules";
+import { nextPlayer, splitStakes, validateSettings, validateSplit } from "../lib/monopoly/rules";
+import { rentTotals } from "../lib/monopoly/stats";
+import { BANK } from "../lib/monopoly/types";
 import { DEFAULT_SETTINGS, type BoardConfig, type MEvent, type Settings } from "../lib/monopoly/types";
 
 /** Payment requests, trade offers and banker approvals all lapse after 5 minutes. */
@@ -370,9 +375,17 @@ export const state = query({
         .query("mAuctions")
         .withIndex("by_game_status", (q) => q.eq("gameId", latest._id).eq("status", "open"))
         .first();
+      const summaries =
+        latest.status === "ended"
+          ? await ctx.db
+              .query("mGameSummaries")
+              .withIndex("by_game", (q) => q.eq("gameId", latest._id))
+              .collect()
+          : [];
       game = {
         ...latest,
         auction,
+        summaries,
         players: loaded.players.map((p) => ({ ...p, name: loaded.state.players[p._id].name ?? "A player" })),
         props: loaded.props,
         events,
@@ -795,6 +808,7 @@ export const undo = mutation({
     const { userId, player: host } = await requireHost(ctx, game.sessionId);
     return await withIdempotency(ctx, userId, idempotencyKey, async () => {
       if (game.status !== "active" && game.status !== "paused") fail("INVALID_STATE", "That game isn't in progress.");
+      if (await openAuctionOf(ctx, gameId)) fail("INVALID_STATE", "Finish or stop the running auction before undoing.");
       const groups = await loadGroups(ctx, gameId);
       const verdict = checkUndo(groups, groupId);
       if (!verdict.ok) fail(verdict.code === "BLOCKED" ? "NOT_UNDOABLE" : verdict.code, verdict.reason);
@@ -1062,6 +1076,219 @@ export const closeAuction = internalMutation({
     // Bankruptcy to the bank queues the debtor's properties; the next one goes up straight away.
     const [next, ...rest] = auction.queue ?? [];
     if (next && game.status === "active") await beginAuction(ctx, game, next, auction.startedBy, rest);
+    return null;
+  },
+});
+
+// ---------------------------------------------------------------------------------------------
+// Bankruptcy, the end of a game, and real-money payouts
+// ---------------------------------------------------------------------------------------------
+
+/** Closes a game whose players all have a finishing place: pays the stakes by place, writes each player's summary. */
+async function finalizeGame(ctx: MutationCtx, gameId: Id<"mGames">, hostSeat: Id<"sessionPlayers">) {
+  const loaded = await loadGame(ctx, gameId);
+  const { game, state, players } = loaded;
+  if (game.status !== "active" && game.status !== "paused") fail("INVALID_STATE", "That game isn't in progress.");
+  if (!gameIsOver(state)) fail("INVALID_STATE", "Not everyone has a finishing place yet.");
+  const session = (await ctx.db.get(game.sessionId))!;
+  const ranked = [...players].sort((a, b) => state.players[a._id].finishPosition! - state.players[b._id].finishPosition!);
+  const { stakes } = game.settings;
+  const payouts = stakes.buyIn > 0 ? rules(() => splitStakes(stakes.buyIn, ranked.length, stakes.split)).payouts : [];
+
+  const rows = await ctx.db
+    .query("mEvents")
+    .withIndex("by_game_group", (q) => q.eq("gameId", gameId))
+    .take(20000);
+  const rent = rentTotals(rows.filter((r) => !NON_GROUP_TYPES.has(r.type)).map(rowToEvent));
+
+  const now = Date.now();
+  for (let i = 0; i < ranked.length; i++) {
+    const p = ranked[i];
+    const payout = payouts[i] ?? 0;
+    if (payout > 0) {
+      await applyEntry(ctx, {
+        sessionId: game.sessionId,
+        mGameId: gameId,
+        type: "MONO_PAYOUT",
+        toPlayerId: p.sessionPlayerId,
+        amount: payout,
+        createdByPlayerId: hostSeat,
+        meta: { position: i + 1 },
+      });
+    }
+    const seat = (await ctx.db.get(p.sessionPlayerId))!;
+    await ctx.db.insert("mGameSummaries", {
+      crewId: session.crewId,
+      crewMemberId: seat.crewMemberId,
+      sessionId: game.sessionId,
+      gameId,
+      sessionPlayerId: p.sessionPlayerId,
+      endedAt: now,
+      finishPosition: i + 1,
+      players: ranked.length,
+      rentEarned: rent[p._id]?.earned ?? 0,
+      rentPaid: rent[p._id]?.paid ?? 0,
+      stakeNet: payout - stakes.buyIn,
+    });
+  }
+  const open = await ctx.db
+    .query("mRequests")
+    .withIndex("by_game_status", (q) => q.eq("gameId", gameId).eq("status", "pending"))
+    .collect();
+  for (const r of open) await ctx.db.patch(r._id, { status: "cancelled", respondedAt: now });
+  const auction = await openAuctionOf(ctx, gameId);
+  if (auction) {
+    if (auction.scheduledId) await ctx.scheduler.cancel(auction.scheduledId);
+    await ctx.db.patch(auction._id, { status: "unsold", queue: undefined });
+  }
+  await ctx.db.patch(gameId, { status: "ended", endedAt: now, currentTurnPlayerId: undefined });
+}
+
+/**
+ * A player who can't pay is out (or the host puts them out). To another player: their buildings are sold at half cost and
+ * everything goes to the creditor. To the bank: cash goes to the bank and the deeds are auctioned one by one when
+ * auctions are on. The last player standing wins and the game closes.
+ */
+export const declareBankruptcy = mutation({
+  args: { gameId: v.id("mGames"), playerId: v.optional(v.id("mPlayers")), creditorId: v.union(v.id("mPlayers"), v.null()), idempotencyKey: v.string() },
+  handler: async (ctx, { gameId, playerId, creditorId, idempotencyKey }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game) fail("NOT_FOUND", "Game not found.");
+    const { userId, player: sp, isHost } = await requireActivePlayer(ctx, game.sessionId);
+    return await withIdempotency(ctx, userId, idempotencyKey, async () => {
+      requireLive(game);
+      const me = await myMonoPlayer(ctx, gameId, sp._id);
+      const targetId = playerId ?? me?._id;
+      if (!targetId) fail("FORBIDDEN", "You're watching this game.");
+      if (targetId !== me?._id && !isHost) fail("FORBIDDEN", "Only the host can end another player's game.");
+      const loaded = await loadGame(ctx, gameId);
+      const plan = rules(() => planBankruptcy(loaded.state, targetId, creditorId ?? BANK));
+      const name = loaded.state.players[targetId].name ?? "A player";
+      const result = await applyMonopolyGroup(ctx, { loaded, events: plan.events, by: sp._id, label: `${name} went bankrupt to ${creditorId ? (loaded.state.players[creditorId].name ?? "a player") : "the bank"}`, idempotencyKey });
+
+      const open = await ctx.db
+        .query("mRequests")
+        .withIndex("by_game_status", (q) => q.eq("gameId", gameId).eq("status", "pending"))
+        .collect();
+      for (const r of open) if (r.fromPlayerId === targetId || r.toPlayerId === targetId) await ctx.db.patch(r._id, { status: "cancelled", respondedAt: Date.now() });
+
+      if (plan.winnerId) {
+        await finalizeGame(ctx, gameId, sp._id);
+        return { groupId: result.groupId, gameOver: true };
+      }
+      if (game.currentTurnPlayerId === targetId) {
+        const next = nextPlayer(result.state, targetId);
+        if (next) await ctx.db.patch(gameId, { currentTurnPlayerId: next as Id<"mPlayers">, turnNo: game.turnNo + 1 });
+      }
+      if (plan.toAuction.length > 0) {
+        const live = (await ctx.db.get(gameId))!;
+        const running = await openAuctionOf(ctx, gameId);
+        if (running) {
+          await ctx.db.patch(running._id, { queue: [...(running.queue ?? []), ...plan.toAuction] });
+        } else {
+          const starter = Object.values(result.state.players).find((p) => p.status === "playing");
+          const [first, ...rest] = plan.toAuction;
+          if (starter) await beginAuction(ctx, live, first, starter.id as Id<"mPlayers">, rest);
+        }
+      }
+      return { groupId: result.groupId, gameOver: false };
+    });
+  },
+});
+
+/** The host ends the game before one player is left. Places are proposed by net worth; the host can send their own order. */
+export const endGameEarly = mutation({
+  args: { gameId: v.id("mGames"), order: v.optional(v.array(v.id("mPlayers"))), idempotencyKey: v.string() },
+  handler: async (ctx, { gameId, order, idempotencyKey }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game) fail("NOT_FOUND", "Game not found.");
+    const { userId, player: host } = await requireHost(ctx, game.sessionId);
+    return await withIdempotency(ctx, userId, idempotencyKey, async () => {
+      if (game.status !== "active" && game.status !== "paused") fail("INVALID_STATE", "That game isn't in progress.");
+      const loaded = await loadGame(ctx, gameId);
+      const plan = rules(() => planEndGame(loaded.state, order));
+      const result = await applyMonopolyGroup(ctx, { loaded, events: plan.events, by: host._id, label: "The host ended the game and set the places", idempotencyKey });
+      await finalizeGame(ctx, gameId, host._id);
+      return { groupId: result.groupId };
+    });
+  },
+});
+
+/** Closes a game where everyone already has a place (for example after the host undid a mistake and re-finished it). */
+export const finishGame = mutation({
+  args: { gameId: v.id("mGames"), idempotencyKey: v.string() },
+  handler: async (ctx, { gameId, idempotencyKey }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game) fail("NOT_FOUND", "Game not found.");
+    const { userId, player: host } = await requireHost(ctx, game.sessionId);
+    return await withIdempotency(ctx, userId, idempotencyKey, async () => {
+      await finalizeGame(ctx, gameId, host._id);
+      return null;
+    });
+  },
+});
+
+/**
+ * Takes back a finished game: the payouts are reversed, the summaries removed and the game is live again, so the host can
+ * undo the last move (the bankruptcy or the early end) and play on. Only the latest game, and only while the session is open.
+ */
+export const reopenGame = mutation({
+  args: { gameId: v.id("mGames"), idempotencyKey: v.string() },
+  handler: async (ctx, { gameId, idempotencyKey }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game) fail("NOT_FOUND", "Game not found.");
+    const { userId, session, player: host } = await requireHost(ctx, game.sessionId);
+    return await withIdempotency(ctx, userId, idempotencyKey, async () => {
+      if (game.status !== "ended") fail("INVALID_STATE", "Only a finished game can be reopened.");
+      if (game.gameNo !== session.nextGameNo - 1) fail("INVALID_STATE", "Only the most recent game can be reopened.");
+      const payouts = await ctx.db
+        .query("ledgerEntries")
+        .withIndex("by_session_type", (q) => q.eq("sessionId", game.sessionId).eq("type", "MONO_PAYOUT"))
+        .collect();
+      for (const e of payouts) {
+        if (e.mGameId === gameId && !(await findReversal(ctx, e._id))) await reverseEntry(ctx, e, host._id, { meta: { reason: "game_reopened" } });
+      }
+      const summaries = await ctx.db
+        .query("mGameSummaries")
+        .withIndex("by_game", (q) => q.eq("gameId", gameId))
+        .collect();
+      for (const r of summaries) await ctx.db.delete(r._id);
+      const loaded = await loadGame(ctx, gameId);
+      const firstPlaying = Object.values(loaded.state.players).find((p) => p.status === "playing");
+      await ctx.db.patch(gameId, { status: "active", endedAt: undefined, currentTurnPlayerId: firstPlaying?.id as Id<"mPlayers"> | undefined });
+      return null;
+    });
+  },
+});
+
+/**
+ * Someone's card or request couldn't be paid because this player is short. The failed move wrote nothing, so the
+ * phone that saw the error asks the server to flag the short player, whose phone then opens the raise-money flow.
+ */
+export const flagShort = mutation({
+  args: { gameId: v.id("mGames"), playerId: v.id("mPlayers"), needed: v.number() },
+  handler: async (ctx, { gameId, playerId, needed }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game) fail("NOT_FOUND", "Game not found.");
+    await requireActivePlayer(ctx, game.sessionId);
+    requireLive(game);
+    const p = await ctx.db.get(playerId);
+    if (!p || p.gameId !== gameId || p.status !== "playing") return null;
+    assertAmount(needed, "Amount");
+    if (p.cash >= needed) return null; // not actually short
+    await ctx.db.patch(playerId, { owes: { needed, at: Date.now() } });
+    return null;
+  },
+});
+
+export const clearShort = mutation({
+  args: { gameId: v.id("mGames") },
+  handler: async (ctx, { gameId }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game) fail("NOT_FOUND", "Game not found.");
+    const { player: sp } = await requireActivePlayer(ctx, game.sessionId);
+    const me = await myMonoPlayer(ctx, gameId, sp._id);
+    if (me?.owes) await ctx.db.patch(me._id, { owes: undefined });
     return null;
   },
 });

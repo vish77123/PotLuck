@@ -6,6 +6,7 @@ import { useGameState, useMoney, type MonoGame, type MonoPlayer } from "@/compon
 import { AmountStepper } from "@/components/ui/AmountStepper";
 import { GoldButton, Segmented } from "@/components/ui/controls";
 import { Sheet } from "@/components/ui/Sheet";
+import { ShortNotice } from "@/components/mono/MonoSheets";
 import { buildingCounts } from "@/lib/monopoly/rules";
 
 const CHIPS = [10, 20, 50, 100, 150, 200];
@@ -76,7 +77,7 @@ export function CardsSheet({ open, onClose, game, me }: { open: boolean; onClose
               </button>
             ))}
           </div>
-          {mode === "pay" && payTotal > me.cash && <div className="mt-3 rounded-[14px] border border-down px-3.5 py-2.5 text-[13px] font-semibold text-down">You have only {fmt(me.cash)}. {fmt(payTotal - me.cash)} more is needed.</div>}
+          {mode === "pay" && payTotal > me.cash && <ShortNotice text={`You have only ${fmt(me.cash)}. ${fmt(payTotal - me.cash)} more is needed.`} needed={payTotal} onClose={onClose} />}
         </>
       )}
 
@@ -96,7 +97,7 @@ export function CardsSheet({ open, onClose, game, me }: { open: boolean; onClose
             </div>
           </div>
           <div className="mt-4 rounded-[16px] border border-line bg-surface2 px-4 py-3 text-[14px] font-extrabold">Your bill: {fmt(bill)}</div>
-          {bill > me.cash && <div className="mt-3 rounded-[14px] border border-down px-3.5 py-2.5 text-[13px] font-semibold text-down">You have only {fmt(me.cash)}. {fmt(bill - me.cash)} more is needed.</div>}
+          {bill > me.cash && <ShortNotice text={`You have only ${fmt(me.cash)}. ${fmt(bill - me.cash)} more is needed.`} needed={bill} onClose={onClose} />}
           {game.settings.freeParkingPot && <div className="mt-2 text-[12.5px] font-semibold text-ink3">Goes into the Free Parking pot.</div>}
         </>
       )}

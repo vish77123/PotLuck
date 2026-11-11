@@ -172,7 +172,65 @@ export const full = query({
       })
       .reverse();
 
+    // Property games: each game's places, stakes and rent, from the summaries written when it ended.
+    let mono: {
+      games: {
+        no: number;
+        status: string;
+        board: string;
+        currency: string;
+        startedAt: number | null;
+        endedAt: number | null;
+        buyIn: number;
+        pot: number;
+        players: { name: string; position: number | null; payout: number; stakeNet: number; rentEarned: number; rentPaid: number }[];
+      }[];
+    } | null = null;
+    if (session.type === "monopoly") {
+      const mGames = await ctx.db
+        .query("mGames")
+        .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
+        .collect();
+      const rows = [];
+      for (const g of mGames) {
+        if (g.status === "setup") continue;
+        const summaries = await ctx.db
+          .query("mGameSummaries")
+          .withIndex("by_game", (q) => q.eq("gameId", g._id))
+          .collect();
+        const mPlayers = await ctx.db
+          .query("mPlayers")
+          .withIndex("by_game", (q) => q.eq("gameId", g._id))
+          .collect();
+        const buyIn = g.settings.stakes.buyIn;
+        const lines = mPlayers.map((p) => {
+          const sm = summaries.find((x) => x.sessionPlayerId === p.sessionPlayerId);
+          return {
+            name: name(p.sessionPlayerId),
+            position: sm?.finishPosition ?? p.finishPosition ?? null,
+            payout: sm ? sm.stakeNet + buyIn : 0,
+            stakeNet: sm?.stakeNet ?? 0,
+            rentEarned: sm?.rentEarned ?? 0,
+            rentPaid: sm?.rentPaid ?? 0,
+          };
+        });
+        rows.push({
+          no: g.gameNo,
+          status: g.status,
+          board: g.boardSnapshot.name,
+          currency: g.boardSnapshot.currency,
+          startedAt: g.startedAt ?? null,
+          endedAt: g.endedAt ?? null,
+          buyIn,
+          pot: g.status === "cancelled" ? 0 : buyIn * mPlayers.length,
+          players: lines.sort((a, b) => (a.position ?? 99) - (b.position ?? 99)),
+        });
+      }
+      mono = { games: rows.sort((a, b) => b.no - a.no) };
+    }
+
     return {
+      mono,
       session: {
         name: session.name ?? null,
         crewName: crew?.name ?? "",
@@ -183,11 +241,17 @@ export const full = query({
         startedAt: session.startedAt ?? null,
         endedAt: session.endedAt ?? null,
       },
-      totals: {
-        games: finished.length,
-        moved: finished.reduce((s, g) => s + g.pot, 0),
-        biggestPot: finished.reduce((m, g) => Math.max(m, g.pot), 0),
-      },
+      // A property session counts its own games: real-money pots rather than card-game pools.
+      totals: mono
+        ? (() => {
+            const ended = mono.games.filter((g) => g.status === "ended");
+            return { games: ended.length, moved: ended.reduce((s, g) => s + g.pot, 0), biggestPot: ended.reduce((m, g) => Math.max(m, g.pot), 0) };
+          })()
+        : {
+            games: finished.length,
+            moved: finished.reduce((s, g) => s + g.pot, 0),
+            biggestPot: finished.reduce((m, g) => Math.max(m, g.pot), 0),
+          },
       players: nets.map((n) => ({
         id: n.playerId,
         name: n.name,

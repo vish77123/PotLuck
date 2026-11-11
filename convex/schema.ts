@@ -364,6 +364,8 @@ export default defineSchema({
     status: v.union(v.literal("playing"), v.literal("bankrupt")),
     finishPosition: v.optional(v.number()),
     lastPassGoTurn: v.optional(v.number()),
+    // Set when someone else's card or request couldn't be paid: this player is asked to raise money.
+    owes: v.optional(v.object({ needed: v.number(), at: v.number() })),
   })
     .index("by_game", ["gameId", "seatOrder"])
     .index("by_game_player", ["gameId", "sessionPlayerId"]),

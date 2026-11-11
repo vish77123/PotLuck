@@ -599,7 +599,8 @@ export function gameIsOver(state: GameState) {
 function invert(e: MEvent): MEvent {
   switch (e.type) {
     case "PAY":
-      return { ...e, fromParty: e.toParty, toParty: e.fromParty };
+      // Marked so totals (rent earned and paid) can tell an undo from a real payment.
+      return { ...e, fromParty: e.toParty, toParty: e.fromParty, meta: e.meta ? { ...e.meta, undo: true } : e.meta };
     case "PROPERTY":
       return { ...e, fromParty: e.toParty, toParty: e.fromParty };
     case "BUILDINGS":

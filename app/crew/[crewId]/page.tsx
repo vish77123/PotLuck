@@ -23,6 +23,7 @@ export default function CrewPage() {
   const [period, setPeriod] = useState<"all" | "month">("all");
   const [since] = useState(monthStart);
   const data = useAuthedQuery(api.stats.leaderboard, { crewId: crewId as Id<"crews">, since: period === "month" ? since : undefined });
+  const propertyBoard = useAuthedQuery(api.monoStats.leaderboard, MONOPOLY_ENABLED ? { crewId: crewId as Id<"crews"> } : "skip");
 
   return (
     <main className="room mx-auto w-full max-w-[520px] pb-10 text-ink">
@@ -84,6 +85,28 @@ export default function CrewPage() {
               </Link>
             ))}
           </div>
+          {propertyBoard && propertyBoard.length > 0 && (
+            <>
+              <div className="px-5 pt-6 text-[15px] font-extrabold">Property games</div>
+              <div className="mx-4 mt-2.5 overflow-hidden rounded-[22px] border border-line bg-surface">
+                {propertyBoard.map((r) => (
+                  <Link key={r.memberId} href={`/crew/${crewId}/${r.memberId}`} className="flex items-center gap-3 border-b border-line px-4 py-3 last:border-b-0">
+                    <Avatar name={r.name} size={36} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[15px] font-bold">{r.name}</div>
+                      <div className="text-xs font-semibold text-ink3">
+                        {r.games} {r.games === 1 ? "game" : "games"} · {r.wins} {r.wins === 1 ? "win" : "wins"} · avg place {r.avgFinish ?? "—"}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="amount text-[17px]">{r.rentEarned.toLocaleString("en-IN")}</div>
+                      <div className="text-[10.5px] font-extrabold tracking-[.1em] text-ink3">RENT EARNED</div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </>
+          )}
         </>
       )}
     </main>
