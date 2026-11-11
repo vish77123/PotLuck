@@ -24,7 +24,7 @@ export function MonoFeed({ game, seats, isHost }: { game: MonoGame; seats: MonoS
         label: e.label ?? "A move was recorded",
         at: e.createdAt,
         by: seats.find((s) => s._id === e.createdBy)?.name ?? "Someone",
-        turn: e.type === "TURN",
+        turn: e.type === "TURN" || e.type === "NOTE",
         reversal: !!e.reversesGroupId,
       });
     }

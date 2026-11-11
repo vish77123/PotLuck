@@ -11,6 +11,7 @@ import { useUi } from "@/stores/ui";
 import type { MonoGame } from "@/components/mono/types";
 
 export type MonoAction = FunctionArgs<typeof api.mono.perform>["action"];
+export type TradeSideInput = FunctionArgs<typeof api.mono.proposeTrade>["give"];
 
 /** Every in-game action a phone can take. Each call carries its own idempotency key; the server explains any refusal. */
 export function useMonoActions(game: MonoGame) {
@@ -73,11 +74,37 @@ export function useMonoActions(game: MonoGame) {
     [convex, game._id, run, pushToast],
   );
 
+  const proposeTrade = useCallback(
+    (withPlayerId: Id<"mPlayers">, give: TradeSideInput, get: TradeSideInput) =>
+      run(async () => {
+        const res = await convex.mutation(api.mono.proposeTrade, { gameId: game._id, withPlayerId, give, get, idempotencyKey: newKey() });
+        pushToast({ text: "Offer sent. It expires in 5 minutes.", badge: "⇄" });
+        return res;
+      }),
+    [convex, game._id, run, pushToast],
+  );
+
+  const startAuction = useCallback(
+    (spaceId: string) =>
+      run(async () => {
+        const res = await convex.mutation(api.mono.startAuction, { gameId: game._id, spaceId, idempotencyKey: newKey() });
+        return res;
+      }),
+    [convex, game._id, run],
+  );
+
+  const bid = useCallback(
+    (auctionId: Id<"mAuctions">, amount: number) => run(() => convex.mutation(api.mono.bid, { auctionId, amount, idempotencyKey: newKey() })),
+    [convex, run],
+  );
+
+  const cancelAuction = useCallback((auctionId: Id<"mAuctions">) => run(() => convex.mutation(api.mono.cancelAuction, { auctionId })), [convex, run]);
+
   const cancelGame = useCallback(
     () => run(() => convex.mutation(api.mono.cancelGame, { gameId: game._id, idempotencyKey: newKey() })),
     [convex, game._id, run],
   );
   const setBanker = useCallback((playerId: Id<"mPlayers">) => run(() => convex.mutation(api.mono.setBanker, { gameId: game._id, playerId })), [convex, game._id, run]);
 
-  return { pending, perform, requestPayment, respond, cancelRequest, endTurn, undo, cancelGame, setBanker };
+  return { pending, perform, requestPayment, respond, cancelRequest, endTurn, undo, cancelGame, setBanker, proposeTrade, startAuction, bid, cancelAuction };
 }

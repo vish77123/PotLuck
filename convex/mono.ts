@@ -1,4 +1,4 @@
-import { v, type Infer } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -10,6 +10,7 @@ import { applyMonopolyGroup, loadGame, loadGroups, myMonoPlayer, requireLive, ro
 import { assertAmount, cleanName } from "./lib/validators";
 import { seatPlayer, uniqueCode, monoGameInProgress } from "./sessions";
 import { describeGroup } from "../lib/monopoly/describe";
+import { formatMoney } from "../lib/monopoly/money";
 import {
   checkUndo,
   gameViolations,
@@ -17,15 +18,25 @@ import {
   planBankCollect,
   planBuild,
   planBuy,
+  planCardEveryPlayer,
   planCollectPot,
+  planDrawJailCard,
+  planGoToJail,
+  planJailTurn,
+  planLeaveJail,
   planMortgage,
   planPassGo,
   planPayBank,
+  planPayJailFine,
   planPlayerPay,
   planRent,
+  planRepairs,
   planSellBuilding,
+  planTrade,
   planUnmortgage,
+  planUseJailCard,
   type Plan,
+  type TradeOffer,
 } from "../lib/monopoly/engine";
 import { crewBoard } from "./monoBoards";
 import { PRESETS } from "../lib/monopoly/presets";
@@ -355,8 +366,13 @@ export const state = query({
         .withIndex("by_game_status", (q) => q.eq("gameId", latest._id).eq("status", "pending"))
         .take(60);
       const mine = loaded.players.find((p) => p.sessionPlayerId === me._id) ?? null;
+      const auction = await ctx.db
+        .query("mAuctions")
+        .withIndex("by_game_status", (q) => q.eq("gameId", latest._id).eq("status", "open"))
+        .first();
       game = {
         ...latest,
+        auction,
         players: loaded.players.map((p) => ({ ...p, name: loaded.state.players[p._id].name ?? "A player" })),
         props: loaded.props,
         events,
@@ -410,11 +426,36 @@ const actionV = v.union(
   v.object({ kind: v.literal("sellBuilding"), playerId: v.optional(v.id("mPlayers")), spaceId: v.string() }),
   v.object({ kind: v.literal("mortgage"), playerId: v.optional(v.id("mPlayers")), spaceId: v.string() }),
   v.object({ kind: v.literal("unmortgage"), playerId: v.optional(v.id("mPlayers")), spaceId: v.string() }),
+  // Cards and jail.
+  v.object({ kind: v.literal("cardEvery"), playerId: v.optional(v.id("mPlayers")), direction: v.union(v.literal("collect"), v.literal("pay")), amount: v.number() }),
+  v.object({ kind: v.literal("repairs"), playerId: v.optional(v.id("mPlayers")), perHouse: v.number(), perHotel: v.number() }),
+  v.object({ kind: v.literal("drawJailCard"), playerId: v.optional(v.id("mPlayers")) }),
+  v.object({ kind: v.literal("goToJail"), playerId: v.optional(v.id("mPlayers")) }),
+  v.object({ kind: v.literal("jailTurn"), playerId: v.optional(v.id("mPlayers")) }),
+  v.object({ kind: v.literal("payJailFine"), playerId: v.optional(v.id("mPlayers")) }),
+  v.object({ kind: v.literal("useJailCard"), playerId: v.optional(v.id("mPlayers")) }),
+  v.object({ kind: v.literal("leaveJail"), playerId: v.optional(v.id("mPlayers")) }),
 );
 type Action = Infer<typeof actionV>;
 
-/** Player-to-player money (a payment, rent) is never queued for the banker; everything that touches the bank is. */
-const isBankFacing = (a: Action) => a.kind !== "pay" && a.kind !== "rent";
+/**
+ * Everything that pays or collects money with the bank (or the pot) waits for the banker in banker mode. Money between
+ * players (a payment, rent, a "from every player" card) and jail moves that don't pay anyone are instant.
+ */
+const BANK_FACING = new Set<Action["kind"]>([
+  "passGo",
+  "bankPay",
+  "bankCollect",
+  "collectPot",
+  "buy",
+  "build",
+  "sellBuilding",
+  "mortgage",
+  "unmortgage",
+  "repairs",
+  "payJailFine",
+]);
+const isBankFacing = (a: Action) => BANK_FACING.has(a.kind);
 
 /** Builds and validates the events for an action against the current state, without writing anything. */
 function planAction(loaded: Awaited<ReturnType<typeof loadGame>>, actor: Id<"mPlayers"> | null, action: Action, opts: { skipRepeatCheck?: boolean } = {}) {
@@ -461,6 +502,33 @@ function planAction(loaded: Awaited<ReturnType<typeof loadGame>>, actor: Id<"mPl
       break;
     case "unmortgage":
       plan = rules(() => planUnmortgage(state, target, action.spaceId));
+      break;
+    case "cardEvery":
+      assertAmount(action.amount, "Amount");
+      plan = rules(() => planCardEveryPlayer(state, target, action.amount, action.direction));
+      break;
+    case "repairs":
+      assertAmount(action.perHouse, "Per house", { allowZero: true });
+      assertAmount(action.perHotel, "Per hotel", { allowZero: true });
+      plan = rules(() => planRepairs(state, target, action.perHouse, action.perHotel));
+      break;
+    case "drawJailCard":
+      plan = rules(() => planDrawJailCard(state, target));
+      break;
+    case "goToJail":
+      plan = rules(() => planGoToJail(state, target));
+      break;
+    case "jailTurn":
+      plan = rules(() => planJailTurn(state, target));
+      break;
+    case "payJailFine":
+      plan = rules(() => planPayJailFine(state, target));
+      break;
+    case "useJailCard":
+      plan = rules(() => planUseJailCard(state, target));
+      break;
+    case "leaveJail":
+      plan = rules(() => planLeaveJail(state, target));
       break;
     case "pay": {
       if (!actor) fail("INVALID_STATE", "Only players can pay each other.");
@@ -635,6 +703,18 @@ export const respond = mutation({
         await ctx.db.patch(requestId, { status: "accepted", respondedAt: now, resultGroupId: done.groupId });
         return { accepted: true, groupId: done.groupId };
       }
+      if (req.kind === "trade") {
+        if (!accept) {
+          if (!(isTarget || isRequester)) fail("FORBIDDEN", "Only the two players in the trade can answer.");
+          await ctx.db.patch(requestId, { status: isRequester && !isTarget ? "cancelled" : "declined", respondedAt: now });
+          return { accepted: false, groupId: null };
+        }
+        if (!isTarget) fail("FORBIDDEN", "Only the player being offered the trade can accept it.");
+        const offer = req.payload as TradeOffer;
+        const done = await executeTrade(ctx, req.gameId, sp._id, offer, idempotencyKey);
+        await ctx.db.patch(requestId, { status: "accepted", respondedAt: now, resultGroupId: done.groupId });
+        return { accepted: true, groupId: done.groupId };
+      }
       fail("INVALID_STATE", "That kind of request isn't supported yet.");
     });
   },
@@ -765,5 +845,223 @@ export const assertGameInvariants = internalQuery({
     const result = await checkGameInvariants(ctx, gameId);
     if (result.violations.length) throw new Error(`Monopoly invariant violations:\n${result.violations.join("\n")}`);
     return result;
+  },
+});
+
+// ---------------------------------------------------------------------------------------------
+// Trades
+// ---------------------------------------------------------------------------------------------
+
+const tradeSideV = v.object({ cash: v.number(), spaceIds: v.array(v.string()), jailCards: v.number() });
+
+async function executeTrade(ctx: MutationCtx, gameId: Id<"mGames">, by: Id<"sessionPlayers">, offer: TradeOffer, idempotencyKey?: string) {
+  const loaded = await loadGame(ctx, gameId);
+  requireLive(loaded.game);
+  const plan = rules(() => planTrade(loaded.state, offer));
+  const name = (id: string) => loaded.state.players[id]?.name ?? "A player";
+  const result = await applyMonopolyGroup(ctx, {
+    loaded,
+    events: plan.events,
+    by,
+    label: `${name(offer.a.player)} traded with ${name(offer.b.player)}`,
+    idempotencyKey,
+  });
+  return { groupId: result.groupId };
+}
+
+/**
+ * Offers a trade: cash, properties and jail cards on each side. Both players must agree; it runs as one atomic group when
+ * the other player accepts, re-checked against the game as it is then. Lapses after 5 minutes.
+ */
+export const proposeTrade = mutation({
+  args: { gameId: v.id("mGames"), withPlayerId: v.id("mPlayers"), give: tradeSideV, get: tradeSideV, idempotencyKey: v.string() },
+  handler: async (ctx, { gameId, withPlayerId, give, get, idempotencyKey }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game) fail("NOT_FOUND", "Game not found.");
+    const { userId, player: sp } = await requireActivePlayer(ctx, game.sessionId);
+    return await withIdempotency(ctx, userId, idempotencyKey, async () => {
+      requireLive(game);
+      const me = await myMonoPlayer(ctx, gameId, sp._id);
+      if (!me || me.status !== "playing") fail("FORBIDDEN", "You're not playing in this game.");
+      const other = await ctx.db.get(withPlayerId);
+      if (!other || other.gameId !== gameId || other.status !== "playing") fail("NOT_FOUND", "That player isn't in this game.");
+      const offer: TradeOffer = { a: { player: me._id, ...give }, b: { player: other._id, ...get } };
+      const loaded = await loadGame(ctx, gameId);
+      rules(() => planTrade(loaded.state, offer)); // fail now if it can't work, instead of queueing a doomed offer
+      const now = Date.now();
+      const requestId = await ctx.db.insert("mRequests", {
+        sessionId: game.sessionId,
+        gameId,
+        kind: "trade",
+        status: "pending",
+        fromPlayerId: me._id,
+        toPlayerId: other._id,
+        payload: offer,
+        createdAt: now,
+        expiresAt: now + REQUEST_TTL_MS,
+      });
+      const scheduledId = await ctx.scheduler.runAfter(REQUEST_TTL_MS, internal.mono.expireRequest, { requestId });
+      await ctx.db.patch(requestId, { scheduledId });
+      return { requestId };
+    });
+  },
+});
+
+// ---------------------------------------------------------------------------------------------
+// Auctions
+// ---------------------------------------------------------------------------------------------
+
+export const AUCTION_FIRST_MS = 30_000;
+export const AUCTION_RESET_MS = 15_000;
+
+/** A line in the feed that isn't an undoable action (an auction with no winner, a failed sale). */
+async function logNote(ctx: MutationCtx, game: Doc<"mGames">, label: string, by: Id<"sessionPlayers">) {
+  const fresh = (await ctx.db.get(game._id))!;
+  const groupNo = fresh.nextGroupNo;
+  await ctx.db.patch(game._id, { nextGroupNo: groupNo + 1 });
+  await ctx.db.insert("mEvents", {
+    sessionId: game.sessionId,
+    gameId: game._id,
+    groupId: `${game._id}:${groupNo}`,
+    groupNo,
+    type: "NOTE",
+    label,
+    createdBy: by,
+    createdAt: Date.now(),
+  });
+}
+
+async function openAuctionOf(ctx: MutationCtx, gameId: Id<"mGames">) {
+  return await ctx.db
+    .query("mAuctions")
+    .withIndex("by_game_status", (q) => q.eq("gameId", gameId).eq("status", "open"))
+    .first();
+}
+
+async function beginAuction(ctx: MutationCtx, game: Doc<"mGames">, spaceId: string, startedBy: Id<"mPlayers">, queue?: string[]) {
+  const now = Date.now();
+  const auctionId = await ctx.db.insert("mAuctions", {
+    sessionId: game.sessionId,
+    gameId: game._id,
+    spaceId,
+    highestBid: 0,
+    endsAt: now + AUCTION_FIRST_MS,
+    status: "open",
+    startedBy,
+    queue,
+    startedAt: now,
+  });
+  const scheduledId = await ctx.scheduler.runAfter(AUCTION_FIRST_MS, internal.mono.closeAuction, { auctionId });
+  await ctx.db.patch(auctionId, { scheduledId });
+  return auctionId;
+}
+
+/** Anyone who doesn't want to buy (or can't) puts the property up. Everyone can bid on their own phone. */
+export const startAuction = mutation({
+  args: { gameId: v.id("mGames"), spaceId: v.string(), idempotencyKey: v.string() },
+  handler: async (ctx, { gameId, spaceId, idempotencyKey }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game) fail("NOT_FOUND", "Game not found.");
+    const { userId, player: sp } = await requireActivePlayer(ctx, game.sessionId);
+    return await withIdempotency(ctx, userId, idempotencyKey, async () => {
+      requireLive(game);
+      if (!game.settings.trackProperties) fail("INVALID_STATE", "Properties aren't tracked in this game.");
+      if (!game.settings.auctions) fail("INVALID_STATE", "Auctions are switched off in this game.");
+      const me = await myMonoPlayer(ctx, gameId, sp._id);
+      if (!me || me.status !== "playing") fail("FORBIDDEN", "You're not playing in this game.");
+      const prop = await ctx.db
+        .query("mPropertyStates")
+        .withIndex("by_game_space", (q) => q.eq("gameId", gameId).eq("spaceId", spaceId))
+        .unique();
+      if (!prop) fail("NOT_FOUND", "That space can't be auctioned.");
+      if (prop.ownerPlayerId !== null) fail("INVALID_STATE", "That property already has an owner.");
+      if (await openAuctionOf(ctx, gameId)) fail("INVALID_STATE", "An auction is already running.");
+      const auctionId = await beginAuction(ctx, game, spaceId, me._id);
+      return { auctionId };
+    });
+  },
+});
+
+/** Bid at least $1 above the highest. Anyone who can cover it may bid; each bid resets the countdown to 15 seconds. */
+export const bid = mutation({
+  args: { auctionId: v.id("mAuctions"), amount: v.number(), idempotencyKey: v.string() },
+  handler: async (ctx, { auctionId, amount, idempotencyKey }) => {
+    const auction = await ctx.db.get(auctionId);
+    if (!auction) fail("NOT_FOUND", "Auction not found.");
+    const { userId, player: sp } = await requireActivePlayer(ctx, auction.sessionId);
+    return await withIdempotency(ctx, userId, idempotencyKey, async () => {
+      if (auction.status !== "open") fail("INVALID_STATE", "This auction is over.");
+      const now = Date.now();
+      if (auction.endsAt <= now) fail("INVALID_STATE", "Time's up. This auction is closing.");
+      assertAmount(amount, "Bid");
+      const me = await myMonoPlayer(ctx, auction.gameId, sp._id);
+      if (!me || me.status !== "playing") fail("FORBIDDEN", "You're not playing in this game.");
+      if (auction.highestBidderId === me._id) fail("INVALID_STATE", "You're already the highest bidder.");
+      if (amount <= auction.highestBid) fail("INVALID_AMOUNT", `Bid more than ${auction.highestBid}.`);
+      if (amount > me.cash) fail("INSUFFICIENT_BALANCE", `You have only ${me.cash}. You can't bid ${amount}.`, { playerId: me._id, needed: amount, shortBy: amount - me.cash });
+      if (auction.scheduledId) await ctx.scheduler.cancel(auction.scheduledId);
+      const endsAt = now + AUCTION_RESET_MS;
+      const scheduledId = await ctx.scheduler.runAfter(AUCTION_RESET_MS, internal.mono.closeAuction, { auctionId });
+      await ctx.db.patch(auctionId, { highestBid: amount, highestBidderId: me._id, endsAt, scheduledId });
+      return { endsAt };
+    });
+  },
+});
+
+/** The host stops an auction without a sale (a mistaken tap, or the table changed its mind). */
+export const cancelAuction = mutation({
+  args: { auctionId: v.id("mAuctions") },
+  handler: async (ctx, { auctionId }) => {
+    const auction = await ctx.db.get(auctionId);
+    if (!auction) fail("NOT_FOUND", "Auction not found.");
+    await requireHost(ctx, auction.sessionId);
+    if (auction.status !== "open") return null;
+    if (auction.scheduledId) await ctx.scheduler.cancel(auction.scheduledId);
+    await ctx.db.patch(auctionId, { status: "unsold", queue: undefined });
+    return null;
+  },
+});
+
+/**
+ * Scheduled for the countdown's end. If a later bid moved the deadline this does nothing (that bid scheduled its own).
+ * The highest bidder pays the bank and gets the deed; with no bids the property stays with the bank.
+ */
+export const closeAuction = internalMutation({
+  args: { auctionId: v.id("mAuctions") },
+  handler: async (ctx, { auctionId }) => {
+    const auction = await ctx.db.get(auctionId);
+    if (!auction || auction.status !== "open") return null;
+    if (auction.endsAt > Date.now()) return null;
+    const game = (await ctx.db.get(auction.gameId))!;
+    const loaded = await loadGame(ctx, game._id);
+    const space = loaded.state.board.spaces.find((x) => x.id === auction.spaceId);
+    const spaceName = space?.name ?? "the property";
+    const bidder = auction.highestBidderId ? loaded.players.find((p) => p._id === auction.highestBidderId) : undefined;
+    const by = bidder?.sessionPlayerId ?? (await ctx.db.get(auction.startedBy))!.sessionPlayerId;
+
+    let sold = false;
+    if (bidder && game.status === "active") {
+      try {
+        const plan = rules(() => planBuy(loaded.state, bidder._id, auction.spaceId, { price: auction.highestBid, reason: "auction" }));
+        await applyMonopolyGroup(ctx, {
+          loaded,
+          events: plan.events,
+          by,
+          label: `${loaded.state.players[bidder._id].name} won the auction for ${spaceName} at ${formatMoney(auction.highestBid, loaded.state.board.currency)}`,
+        });
+        sold = true;
+      } catch (e) {
+        if (!(e instanceof ConvexError)) throw e;
+        await logNote(ctx, game, `${loaded.state.players[bidder._id].name} couldn't pay for ${spaceName}, so it stays with the bank`, by);
+      }
+    } else if (!bidder) {
+      await logNote(ctx, game, `Nobody bid on ${spaceName}, so it stays with the bank`, by);
+    }
+    await ctx.db.patch(auctionId, { status: sold ? "sold" : "unsold" });
+
+    // Bankruptcy to the bank queues the debtor's properties; the next one goes up straight away.
+    const [next, ...rest] = auction.queue ?? [];
+    if (next && game.status === "active") await beginAuction(ctx, game, next, auction.startedBy, rest);
+    return null;
   },
 });

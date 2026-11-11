@@ -148,6 +148,18 @@ export function PropertySheet({ open, onClose, game, me, spaceId, isHost }: { op
             Buy for {fmt(price)}
           </GoldButton>
           {me && me.cash < price && <div className="mt-2 text-[13px] font-semibold text-down">You have only {fmt(me.cash)}. {fmt(price - me.cash)} more is needed.</div>}
+          {game.settings.auctions && (
+            <button
+              disabled={actions.pending || !!game.auction}
+              onClick={async () => {
+                const res = await actions.startAuction(spaceId);
+                if (res) onClose();
+              }}
+              className="press mt-2 h-12 w-full rounded-[16px] border border-line bg-surface2 text-[14px] font-extrabold disabled:opacity-40"
+            >
+              {game.auction ? "An auction is already running" : "Auction it instead"}
+            </button>
+          )}
         </div>
       )}
 

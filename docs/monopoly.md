@@ -2,6 +2,31 @@
 
 Branch `monopoly`. Nothing here is deployed to production. The README gets its Monopoly section in milestone 6.
 
+## Milestone 4 status
+
+Trades, auctions, card actions, jail and the Free Parking pot work. Not yet built: raise-money flow, bankruptcy, game over,
+stakes payout, stats, the table display, pause and resume.
+
+- **Trades:** `mono.proposeTrade` creates a request (cash, properties and Get Out of Jail Free cards on each side). The
+  builder previews with the same rules as the server and shows interest on mortgaged properties. The other player accepts
+  with `mono.respond`; it then re-checks against the game as it is and runs as one undoable group. Offers lapse after 5
+  minutes. Buildings in a traded property's set must be sold first.
+- **Auctions:** any player can start one on an unowned property when auctions are on (`mono.startAuction`). Anyone who can
+  cover it bids (`mono.bid`, at least $1 more than the highest, not above their cash, and not on top of their own bid). The
+  first countdown is 30 s and each bid resets it to 15 s by cancelling and rescheduling `internal.mono.closeAuction`, which
+  does nothing if a later bid moved the deadline. The highest bidder pays the bank and gets the deed; no bids, or a winner
+  who can no longer pay, leaves it with the bank with a feed note. The result is automatic: the bids are the consent, so it
+  isn't queued for the banker. The host can stop an auction. `queue` on an auction lets a bankruptcy to the bank auction its
+  properties one after another (used in milestone 5).
+- **Cards:** "collect from every player" and "pay every player" are single atomic moves that fail with the short player
+  named; repairs bill by the card's per-house and per-hotel amounts (to the pot when that rule is on); a Get Out of Jail
+  Free card can be picked up (two exist), held, traded and used.
+- **Jail:** go to jail (no GO), count a turn, pay the fine, use a card, or leave on doubles. The third turn shows a
+  "pay the fine" prompt.
+- **Banker mode:** payments, rent, "from every player" cards, trades and jail moves that pay nobody are instant; anything
+  that pays the bank or the pot (including repairs and the jail fine) waits for the banker.
+- **Feed:** non-action lines (turn changes, auction results with no winner) are `NOTE`/`TURN` rows that can't be undone.
+
 ## Milestone 3 status
 
 Property tracking works in games with "Track properties" on: buy from the bank, the landed-on flow with one-tap rent,

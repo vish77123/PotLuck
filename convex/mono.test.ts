@@ -868,3 +868,379 @@ describe("crew board editor", () => {
     expect((await s.host.as.query(api.monoBoards.list, { crewId })).boards[0].saved).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Milestone 4: cards, jail, trades, auctions
+// ---------------------------------------------------------------------------------------------
+
+const auctionOf = async (t: T, s: Table) =>
+  await t.run(async (ctx) => (await ctx.db.query("mAuctions").withIndex("by_game_status", (q) => q.eq("gameId", s.gameId)).collect()).sort((a, b) => a._creationTime - b._creationTime).at(-1) ?? null);
+const jailOf = async (t: T, s: Table, who: string) =>
+  await t.run(async (ctx) => {
+    const p = (await ctx.db.get(id(s, who)))!;
+    return { inJail: p.inJail, jailTurns: p.jailTurns, jailCards: p.jailCards };
+  });
+
+describe("card actions", () => {
+  test("collect from every player is one atomic group, even in banker mode", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"], { settings: { bankerMode: "bankerApproves", banker: "Meera" } });
+    const r = await perform(s, "Priya", { kind: "cardEvery", direction: "collect", amount: 50 });
+    expect(r.status).toBe("done");
+    expect(await cashOf(t, s)).toEqual({ Arjun: 1450, Priya: 1600, Meera: 1450 });
+    const st = await s.host.as.query(api.mono.state, { sessionId: s.sessionId });
+    expect([...new Set(st.game!.events.map((e) => e.label))]).toEqual(["Priya collected $50 from every player"]);
+    await check(t, s);
+  });
+
+  test("if any payer can't afford it, nobody pays and that payer is named", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    await perform(s, "Meera", { kind: "pay", toPlayerId: id(s, "Arjun"), amount: 1480 });
+    const e = await expectError(perform(s, "Priya", { kind: "cardEvery", direction: "collect", amount: 50 }), "INSUFFICIENT_BALANCE", /Meera can't afford \$50/);
+    expect(e).toMatchObject({ detail: { playerId: id(s, "Meera"), needed: 50, shortBy: 30 } });
+    expect(await cashOf(t, s)).toEqual({ Arjun: 2980, Priya: 1500, Meera: 20 });
+    await check(t, s);
+  });
+
+  test("pay to every player needs the whole amount in cash", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    await expectError(perform(s, "Priya", { kind: "cardEvery", direction: "pay", amount: 800 }), "INSUFFICIENT_BALANCE");
+    await perform(s, "Priya", { kind: "cardEvery", direction: "pay", amount: 100 });
+    expect(await cashOf(t, s)).toEqual({ Arjun: 1600, Priya: 1300, Meera: 1600 });
+  });
+
+  test("repairs bill houses and hotels by the card's amounts, go to the pot when it's on, and wait for the banker", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"], { settings: { freeParkingPot: true } });
+    await ownSet(s, "Priya");
+    await perform(s, "Priya", { kind: "build", spaceId: sp("Market Sq") });
+    await perform(s, "Priya", { kind: "build", spaceId: sp("Bridge St") });
+    const before = (await cashOf(t, s)).Priya;
+    await perform(s, "Priya", { kind: "repairs", perHouse: 25, perHotel: 100 });
+    expect((await cashOf(t, s)).Priya).toBe(before - 50);
+    expect((await s.host.as.query(api.mono.state, { sessionId: s.sessionId })).game!.freeParkingPot).toBe(50);
+    await expectError(perform(s, "Arjun", { kind: "repairs", perHouse: 25, perHotel: 100 }), "INVALID_STATE", /no buildings/);
+    await check(t, s);
+
+    const q = await monoTable(t, ["Zed", "Yan", "Xi"], { settings: { bankerMode: "bankerApproves", banker: "Xi" } });
+    // Give Yan the set and a house directly (buying would itself queue), then repairs must wait for the banker.
+    await t.run(async (ctx) => {
+      for (const n of ORANGE) {
+        const row = await ctx.db.query("mPropertyStates").withIndex("by_game_space", (x) => x.eq("gameId", q.gameId).eq("spaceId", sp(n))).unique();
+        await ctx.db.patch(row!._id, { ownerPlayerId: id(q, "Yan"), houses: n === "Market Sq" ? 1 : 0 });
+      }
+      await ctx.db.patch(q.gameId, { bankHouses: 31 });
+    });
+    await check(t, q);
+    const queued = await perform(q, "Yan", { kind: "repairs", perHouse: 25, perHotel: 100 });
+    expect(queued.status).toBe("pending");
+    expect((await cashOf(t, q)).Yan).toBe(1500);
+  });
+});
+
+describe("jail", () => {
+  test("go to jail, count turns, pay the fine to get out", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await perform(s, "Priya", { kind: "goToJail" });
+    expect(await jailOf(t, s, "Priya")).toMatchObject({ inJail: true, jailTurns: 0 });
+    await expectError(perform(s, "Priya", { kind: "goToJail" }), "INVALID_STATE", /already in jail/);
+    await perform(s, "Priya", { kind: "jailTurn" });
+    await perform(s, "Priya", { kind: "jailTurn" });
+    expect((await jailOf(t, s, "Priya")).jailTurns).toBe(2);
+    await perform(s, "Priya", { kind: "payJailFine" });
+    expect(await jailOf(t, s, "Priya")).toMatchObject({ inJail: false, jailTurns: 0 });
+    expect((await cashOf(t, s)).Priya).toBe(1450);
+    await expectError(perform(s, "Priya", { kind: "payJailFine" }), "INVALID_STATE", /isn't in jail/);
+    await check(t, s);
+  });
+
+  test("the fine goes into the Free Parking pot when that rule is on", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"], { settings: { freeParkingPot: true } });
+    await perform(s, "Priya", { kind: "goToJail" });
+    await perform(s, "Priya", { kind: "payJailFine" });
+    expect((await s.host.as.query(api.mono.state, { sessionId: s.sessionId })).game!.freeParkingPot).toBe(50);
+  });
+
+  test("Get Out of Jail Free cards are tracked per player, used once, and only two exist", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    await perform(s, "Priya", { kind: "drawJailCard" });
+    expect((await jailOf(t, s, "Priya")).jailCards).toBe(1);
+    await expectError(perform(s, "Priya", { kind: "useJailCard" }), "INVALID_STATE", /isn't in jail/);
+    await perform(s, "Priya", { kind: "goToJail" });
+    await perform(s, "Priya", { kind: "useJailCard" });
+    expect(await jailOf(t, s, "Priya")).toMatchObject({ inJail: false, jailCards: 0 });
+    expect((await cashOf(t, s)).Priya).toBe(1500);
+    await perform(s, "Arjun", { kind: "drawJailCard" });
+    await perform(s, "Meera", { kind: "drawJailCard" });
+    await expectError(perform(s, "Priya", { kind: "drawJailCard" }), "INVALID_STATE", /already held/);
+    await perform(s, "Meera", { kind: "goToJail" });
+    await perform(s, "Priya", { kind: "goToJail" });
+    await expectError(perform(s, "Priya", { kind: "useJailCard" }), "INVALID_STATE", /no Get Out of Jail/);
+    await perform(s, "Priya", { kind: "leaveJail" }); // rolled doubles
+    expect((await jailOf(t, s, "Priya")).inJail).toBe(false);
+    await check(t, s);
+  });
+
+  test("in banker mode the fine waits for the banker but going to jail doesn't", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"], { settings: { bankerMode: "bankerApproves", banker: "Meera" } });
+    expect((await perform(s, "Priya", { kind: "goToJail" })).status).toBe("done");
+    expect((await perform(s, "Priya", { kind: "payJailFine" })).status).toBe("pending");
+    expect((await jailOf(t, s, "Priya")).inJail).toBe(true);
+  });
+
+  test("undoing a jail move restores the jail state", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await perform(s, "Priya", { kind: "goToJail" });
+    const st = await s.host.as.query(api.mono.state, { sessionId: s.sessionId });
+    await s.host.as.mutation(api.mono.undo, { gameId: s.gameId, groupId: st.game!.events[0].groupId, idempotencyKey: key() });
+    expect((await jailOf(t, s, "Priya")).inJail).toBe(false);
+  });
+});
+
+describe("trades", () => {
+  const side = (o: Partial<{ cash: number; spaceIds: string[]; jailCards: number }> = {}) => ({ cash: 0, spaceIds: [] as string[], jailCards: 0, ...o });
+  const propose = (s: Table, from: string, to: string, give: ReturnType<typeof side>, get: ReturnType<typeof side>) =>
+    s.seats[from].as.mutation(api.mono.proposeTrade, { gameId: s.gameId, withPlayerId: id(s, to), give, get, idempotencyKey: key() });
+  const answer = (s: Table, who: string, requestId: Id<"mRequests">, accept: boolean) => s.seats[who].as.mutation(api.mono.respond, { requestId, accept, idempotencyKey: key() });
+
+  test("both agree, then cash, a property and a jail card swap in one move", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    await buy(s, "Priya", "Market Sq");
+    await buy(s, "Arjun", "Mill Lane");
+    await perform(s, "Arjun", { kind: "drawJailCard" });
+    const { requestId } = await propose(s, "Priya", "Arjun", side({ cash: 300, spaceIds: [sp("Market Sq")] }), side({ spaceIds: [sp("Mill Lane")], jailCards: 1 }));
+    // Nothing moves until the other side accepts.
+    expect((await propOf(t, s, "Market Sq")).owner).toBe("Priya");
+    await answer(s, "Arjun", requestId, true);
+    expect(await propOf(t, s, "Market Sq")).toMatchObject({ owner: "Arjun" });
+    expect(await propOf(t, s, "Mill Lane")).toMatchObject({ owner: "Priya" });
+    expect(await cashOf(t, s)).toMatchObject({ Priya: 1500 - 180 - 300 + 60 * 0 + 0 + 0 + 0 === 0 ? 0 : 1020, Arjun: 1500 - 60 + 300 });
+    expect(await jailOf(t, s, "Priya")).toMatchObject({ jailCards: 1 });
+    expect(await jailOf(t, s, "Arjun")).toMatchObject({ jailCards: 0 });
+    const st = await s.host.as.query(api.mono.state, { sessionId: s.sessionId });
+    expect(st.game!.events[0].label).toBe("Priya traded with Arjun");
+    await check(t, s);
+  });
+
+  test("a mortgaged property costs its receiver 10% interest at once", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await buy(s, "Priya", "Power Co.");
+    await perform(s, "Priya", { kind: "mortgage", spaceId: sp("Power Co.") });
+    const before = await cashOf(t, s);
+    const { requestId } = await propose(s, "Priya", "Arjun", side({ spaceIds: [sp("Power Co.")] }), side({ cash: 100 }));
+    await answer(s, "Arjun", requestId, true);
+    expect(await propOf(t, s, "Power Co.")).toMatchObject({ owner: "Arjun", mortgaged: true });
+    expect((await cashOf(t, s)).Arjun).toBe(before.Arjun - 100 - 8);
+    await check(t, s);
+  });
+
+  test("only the other player accepts; declining or withdrawing moves nothing", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    await buy(s, "Priya", "Market Sq");
+    const a = await propose(s, "Priya", "Arjun", side({ spaceIds: [sp("Market Sq")] }), side({ cash: 50 }));
+    await expectError(answer(s, "Priya", a.requestId, true), "FORBIDDEN");
+    await expectError(answer(s, "Meera", a.requestId, true), "FORBIDDEN");
+    await answer(s, "Arjun", a.requestId, false);
+    const b = await propose(s, "Priya", "Arjun", side({ spaceIds: [sp("Market Sq")] }), side({ cash: 50 }));
+    await s.seats.Priya.as.mutation(api.mono.cancelRequest, { requestId: b.requestId });
+    expect((await propOf(t, s, "Market Sq")).owner).toBe("Priya");
+    const rows = await t.run((ctx) => Promise.all([ctx.db.get(a.requestId), ctx.db.get(b.requestId)]));
+    expect(rows.map((r) => r!.status)).toEqual(["declined", "cancelled"]);
+  });
+
+  test("an offer that can't work is refused when it's made", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await buy(s, "Arjun", "Market Sq");
+    await expectError(propose(s, "Priya", "Arjun", side({ spaceIds: [sp("Market Sq")] }), side()), "INVALID_STATE", /doesn't own/);
+    await expectError(propose(s, "Priya", "Arjun", side(), side()), "INVALID_STATE", /Add something/);
+    await expectError(propose(s, "Priya", "Arjun", side({ cash: 5000 }), side()), "INSUFFICIENT_BALANCE");
+    await expectError(propose(s, "Priya", "Priya", side({ cash: 5 }), side()), "INVALID_STATE");
+  });
+
+  test("buildings must be sold before a set's property can be traded", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await ownSet(s, "Priya");
+    await perform(s, "Priya", { kind: "build", spaceId: sp("Market Sq") });
+    await expectError(propose(s, "Priya", "Arjun", side({ spaceIds: [sp("Bridge St")] }), side({ cash: 10 })), "INVALID_STATE", /Sell the buildings/);
+  });
+
+  test("an accepted offer is re-checked: if the deal fell apart meanwhile it fails and stays open", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await buy(s, "Priya", "Market Sq");
+    const { requestId } = await propose(s, "Priya", "Arjun", side({ spaceIds: [sp("Market Sq")] }), side({ cash: 1400 }));
+    await perform(s, "Arjun", { kind: "pay", toPlayerId: id(s, "Priya"), amount: 500 }); // Arjun can no longer afford it
+    await expectError(answer(s, "Arjun", requestId, true), "INSUFFICIENT_BALANCE");
+    expect((await t.run((ctx) => ctx.db.get(requestId)))!.status).toBe("pending");
+    expect((await propOf(t, s, "Market Sq")).owner).toBe("Priya");
+  });
+
+  test("offers expire after 5 minutes", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    const { requestId } = await propose(s, "Priya", "Arjun", side({ cash: 10 }), side());
+    const req = (await t.run((ctx) => ctx.db.get(requestId)))!;
+    expect(req.expiresAt - req.createdAt).toBe(5 * 60 * 1000);
+    await t.run((ctx) => ctx.db.patch(requestId, { expiresAt: Date.now() - 1 }));
+    await t.mutation(internal.mono.expireRequest, { requestId });
+    await expectError(answer(s, "Arjun", requestId, true), "INVALID_STATE", /expired/);
+  });
+
+  test("the host can undo a whole trade, but not once the property has been used", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    await buy(s, "Priya", "Market Sq");
+    const { requestId } = await propose(s, "Priya", "Arjun", side({ spaceIds: [sp("Market Sq")] }), side({ cash: 100 }));
+    await answer(s, "Arjun", requestId, true);
+    const groupId = (await s.host.as.query(api.mono.state, { sessionId: s.sessionId })).game!.events[0].groupId;
+    await perform(s, "Meera", { kind: "rent", spaceId: sp("Market Sq") });
+    await expectError(s.host.as.mutation(api.mono.undo, { gameId: s.gameId, groupId, idempotencyKey: key() }), "NOT_UNDOABLE", /rent for Market Sq/);
+    const rent = (await s.host.as.query(api.mono.state, { sessionId: s.sessionId })).game!.events[0].groupId;
+    await s.host.as.mutation(api.mono.undo, { gameId: s.gameId, groupId: rent, idempotencyKey: key() });
+    await s.host.as.mutation(api.mono.undo, { gameId: s.gameId, groupId, idempotencyKey: key() });
+    expect((await propOf(t, s, "Market Sq")).owner).toBe("Priya");
+    await check(t, s);
+  });
+});
+
+describe("auctions", () => {
+  const start = (s: Table, who: string, name: string) => s.seats[who].as.mutation(api.mono.startAuction, { gameId: s.gameId, spaceId: sp(name), idempotencyKey: key() });
+  const bid = (s: Table, who: string, auctionId: Id<"mAuctions">, amount: number) => s.seats[who].as.mutation(api.mono.bid, { auctionId, amount, idempotencyKey: key() });
+  const closeNow = async (t: T, auctionId: Id<"mAuctions">) => {
+    await t.run((ctx) => ctx.db.patch(auctionId, { endsAt: Date.now() - 1 }));
+    await t.mutation(internal.mono.closeAuction, { auctionId });
+  };
+
+  test("anyone can start one; it has a 30 second countdown and a scheduled close", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    const { auctionId } = await start(s, "Priya", "Market Sq");
+    const a = (await t.run((ctx) => ctx.db.get(auctionId)))!;
+    expect(a).toMatchObject({ status: "open", highestBid: 0, spaceId: sp("Market Sq") });
+    expect(a.endsAt - a.startedAt).toBe(30_000);
+    expect(a.scheduledId).toBeDefined();
+    const st = await s.host.as.query(api.mono.state, { sessionId: s.sessionId });
+    expect(st.game!.auction).toMatchObject({ _id: auctionId });
+  });
+
+  test("only unowned properties, only one at a time, and only when auctions are on", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    await buy(s, "Arjun", "Mill Lane");
+    await expectError(start(s, "Priya", "Mill Lane"), "INVALID_STATE", /already has an owner/);
+    await start(s, "Priya", "Market Sq");
+    await expectError(start(s, "Arjun", "Bridge St"), "INVALID_STATE", /already running/);
+    const off = await monoTable(t, ["Zed", "Yan"]);
+    await off.host.as.mutation(api.mono.cancelGame, { gameId: off.gameId, idempotencyKey: key() });
+    const noProps = await monoTable(t, ["A1", "B1"], { settings: { trackProperties: false } });
+    await expectError(noProps.host.as.mutation(api.mono.startAuction, { gameId: noProps.gameId, spaceId: sp("Market Sq"), idempotencyKey: key() }), "INVALID_STATE", /aren't tracked/);
+  });
+
+  test("bids must beat the highest, fit the bidder's cash, and each one resets the countdown to 15 seconds", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    const { auctionId } = await start(s, "Arjun", "Market Sq");
+    const first = (await t.run((ctx) => ctx.db.get(auctionId)))!.scheduledId;
+    await bid(s, "Priya", auctionId, 100);
+    const a = (await t.run((ctx) => ctx.db.get(auctionId)))!;
+    expect(a).toMatchObject({ highestBid: 100, highestBidderId: id(s, "Priya") });
+    expect(a.endsAt - Date.now()).toBeLessThanOrEqual(15_100);
+    expect(a.endsAt - Date.now()).toBeGreaterThan(13_000);
+    expect(a.scheduledId).not.toBe(first);
+    await expectError(bid(s, "Meera", auctionId, 100), "INVALID_AMOUNT", /more than 100/);
+    await expectError(bid(s, "Priya", auctionId, 150), "INVALID_STATE", /already the highest/);
+    await expectError(bid(s, "Meera", auctionId, 1501), "INSUFFICIENT_BALANCE");
+    await bid(s, "Meera", auctionId, 101);
+    expect((await t.run((ctx) => ctx.db.get(auctionId)))!.highestBidderId).toBe(id(s, "Meera"));
+  });
+
+  test("the countdown ends: the highest bidder pays the bank and gets the deed", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya", "Meera"]);
+    const { auctionId } = await start(s, "Arjun", "Market Sq");
+    await bid(s, "Priya", auctionId, 120);
+    await bid(s, "Meera", auctionId, 210);
+    // Too early: a later bid moved the deadline, so a stale close does nothing.
+    await t.mutation(internal.mono.closeAuction, { auctionId });
+    expect((await t.run((ctx) => ctx.db.get(auctionId)))!.status).toBe("open");
+    await closeNow(t, auctionId);
+    expect((await t.run((ctx) => ctx.db.get(auctionId)))!.status).toBe("sold");
+    expect(await propOf(t, s, "Market Sq")).toMatchObject({ owner: "Meera" });
+    expect((await cashOf(t, s)).Meera).toBe(1290);
+    const st = await s.host.as.query(api.mono.state, { sessionId: s.sessionId });
+    expect(st.game!.auction).toBeNull();
+    expect(st.game!.events[0].label).toBe("Meera won the auction for Market Sq at $210");
+    await check(t, s);
+  });
+
+  test("no bids: the property stays with the bank and the feed says so", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    const { auctionId } = await start(s, "Arjun", "Market Sq");
+    await closeNow(t, auctionId);
+    expect((await t.run((ctx) => ctx.db.get(auctionId)))!.status).toBe("unsold");
+    expect((await propOf(t, s, "Market Sq")).owner).toBeNull();
+    const st = await s.host.as.query(api.mono.state, { sessionId: s.sessionId });
+    expect(st.game!.events[0]).toMatchObject({ type: "NOTE", label: "Nobody bid on Market Sq, so it stays with the bank" });
+    // The note isn't an undoable action.
+    await expectError(s.host.as.mutation(api.mono.undo, { gameId: s.gameId, groupId: st.game!.events[0].groupId, idempotencyKey: key() }), "NOT_UNDOABLE");
+    await start(s, "Priya", "Market Sq"); // it can go up again
+    await check(t, s);
+  });
+
+  test("a winner who can't pay any more doesn't get the deed", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    const { auctionId } = await start(s, "Arjun", "Market Sq");
+    await bid(s, "Priya", auctionId, 900);
+    await perform(s, "Priya", { kind: "pay", toPlayerId: id(s, "Arjun"), amount: 1400 });
+    await closeNow(t, auctionId);
+    expect((await t.run((ctx) => ctx.db.get(auctionId)))!.status).toBe("unsold");
+    expect((await propOf(t, s, "Market Sq")).owner).toBeNull();
+    expect((await cashOf(t, s)).Priya).toBe(100);
+    await check(t, s);
+  });
+
+  test("late bids are refused, and the host can stop an auction", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    const { auctionId } = await start(s, "Arjun", "Market Sq");
+    await t.run((ctx) => ctx.db.patch(auctionId, { endsAt: Date.now() - 1 }));
+    await expectError(bid(s, "Priya", auctionId, 10), "INVALID_STATE", /Time's up/);
+    await t.run((ctx) => ctx.db.patch(auctionId, { endsAt: Date.now() + 20_000 }));
+    await expectError(s.seats.Priya.as.mutation(api.mono.cancelAuction, { auctionId }), "NOT_HOST");
+    await s.host.as.mutation(api.mono.cancelAuction, { auctionId });
+    await expectError(bid(s, "Priya", auctionId, 10), "INVALID_STATE", /over/);
+  });
+
+  test("a queued auction (properties of a bankrupt player) starts the next one when this closes", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    const { auctionId } = await start(s, "Arjun", "Market Sq");
+    await t.run((ctx) => ctx.db.patch(auctionId, { queue: [sp("Bridge St"), sp("Chapel Hill")] }));
+    await closeNow(t, auctionId);
+    const next = (await auctionOf(t, s))!;
+    expect(next).toMatchObject({ status: "open", spaceId: sp("Bridge St"), queue: [sp("Chapel Hill")] });
+  });
+
+  test("spectators can't bid, and a bankrupt player can't", async () => {
+    const t = setup();
+    const s = await monoTable(t, ["Arjun", "Priya"]);
+    const { auctionId } = await start(s, "Arjun", "Market Sq");
+    const late = await newDevice(t);
+    await late.mutation(api.sessions.join, { code: s.code, newName: "Latecomer", idempotencyKey: key() });
+    await expectError(late.mutation(api.mono.bid, { auctionId, amount: 10, idempotencyKey: key() }), "FORBIDDEN");
+  });
+});

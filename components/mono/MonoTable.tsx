@@ -1,10 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { AuctionSheet } from "@/components/mono/AuctionSheet";
 import { MonoBoardTab, MyDeeds } from "@/components/mono/MonoBoardTab";
+import { CardsSheet, JailSheet } from "@/components/mono/MonoCards";
 import { MonoFeed } from "@/components/mono/MonoFeed";
 import { BankSheet, GoSheet, PaySheet } from "@/components/mono/MonoSheets";
 import { PropertySheet } from "@/components/mono/PropertySheet";
+import { TradeSheet } from "@/components/mono/TradeSheet";
+import { sideText } from "@/components/mono/trade";
 import { useMonoActions } from "@/components/mono/actions";
 import { useMoney, type MonoGame, type MonoPlayer, type MonoRequest, type MonoState } from "@/components/mono/types";
 import { Avatar } from "@/components/ui/Avatar";
@@ -14,7 +18,7 @@ import { useNow } from "@/hooks/useNow";
 import { usePresenceHeartbeat } from "@/hooks/usePresenceHeartbeat";
 
 type Tab = "me" | "board" | "bank" | "feed";
-type SheetKind = "go" | "pay" | "request" | "bankIn" | "bankOut" | null;
+type SheetKind = "go" | "pay" | "request" | "bankIn" | "bankOut" | "trade" | "card" | "jail" | null;
 
 function minutesLeft(r: MonoRequest, now: number) {
   const m = Math.max(1, Math.round((r.expiresAt - now) / 60000));
@@ -42,8 +46,13 @@ function RequestRow({
   const fmt = useMoney(game);
   const from = game.players.find((p) => p._id === request.fromPlayerId);
   const payload = request.payload as { label?: string; note?: string } | undefined;
-  const text =
-    request.kind === "payment"
+  const offer = request.kind === "trade" ? (request.payload as { a: { cash: number; spaceIds: string[]; jailCards: number }; b: { cash: number; spaceIds: string[]; jailCards: number } }) : null;
+  const other = game.players.find((p) => p._id === request.toPlayerId);
+  const text = offer
+    ? mine
+      ? `Waiting for ${other?.name ?? "them"} to answer your trade: you give ${sideText(game, offer.a)} for ${sideText(game, offer.b)}`
+      : `${from?.name ?? "Someone"} offers ${sideText(game, offer.a)} for your ${sideText(game, offer.b)}`
+    : request.kind === "payment"
       ? mine
         ? `Waiting for ${game.players.find((p) => p._id === request.toPlayerId)?.name ?? "them"} to pay you ${fmt(request.amount ?? 0)}`
         : `${from?.name ?? "Someone"} asks you for ${fmt(request.amount ?? 0)}`
@@ -74,7 +83,7 @@ function RequestRow({
           <button
             aria-label="Approve"
             disabled={actions.pending}
-            onClick={() => actions.respond(request._id, true, request.kind === "payment" ? `Paid ${from?.name ?? ""} ${fmt(request.amount ?? 0)}` : undefined)}
+            onClick={() => actions.respond(request._id, true, request.kind === "payment" ? `Paid ${from?.name ?? ""} ${fmt(request.amount ?? 0)}` : request.kind === "trade" ? "Trade done" : undefined)}
             className="gold-btn press grid h-11 w-11 place-items-center rounded-[13px] font-black"
           >
             ✓
@@ -107,6 +116,8 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
   const [tab, setTab] = useState<Tab>("me");
   const [sheet, setSheet] = useState<SheetKind>(null);
   const [cancelAsk, setCancelAsk] = useState(false);
+  const [auctionHiddenFor, setAuctionHiddenFor] = useState<string | null>(null);
+  const auctionHidden = !!game.auction && auctionHiddenFor === game.auction._id;
   const [spaceId, setSpaceId] = useState<string | null>(null);
   const [spaceOpen, setSpaceOpen] = useState(false);
   const openSpace = (id: string) => {
@@ -123,7 +134,7 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
   const approvalMode = game.settings.bankerMode === "bankerApproves";
   const paused = game.status === "paused";
 
-  const askedOfMe = game.requests.filter((r) => r.kind === "payment" && r.toPlayerId === me?._id);
+  const askedOfMe = game.requests.filter((r) => (r.kind === "payment" || r.kind === "trade") && r.toPlayerId === me?._id);
   const forApproval = game.requests.filter((r) => r.kind === "approval" && (r.toPlayerId === me?._id || isHost) && r.fromPlayerId !== me?._id);
   const waitingOnOthers = game.requests.filter((r) => r.fromPlayerId === me?._id);
   const attention = askedOfMe.length + forApproval.length;
@@ -154,7 +165,7 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
                 </div>
                 <div className="mt-1 text-[12.5px] font-semibold text-on-felt2">
                   {isBanker ? "You're the banker · " : ""}
-                  {me.inJail ? `In jail · turn ${me.jailTurns}` : game.settings.stakes.buyIn > 0 ? `Playing for real ₹${game.settings.stakes.buyIn.toLocaleString("en-IN")} each` : "Play money"}
+                  {me.inJail ? `In jail · turn ${me.jailTurns + 1}` : game.settings.stakes.buyIn > 0 ? `Playing for real ₹${game.settings.stakes.buyIn.toLocaleString("en-IN")} each` : "Play money"}
                 </div>
               </div>
             </div>
@@ -207,6 +218,19 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
             </div>
           )}
 
+          {me?.inJail && (
+            <button onClick={() => setSheet("jail")} className="press mx-4 mt-3 flex w-[calc(100%-32px)] items-center gap-3 rounded-[18px] border border-line-gold bg-surface p-3.5 text-left">
+              <span className="grid h-9 w-9 flex-none place-items-center rounded-full bg-gold text-[13px] font-black text-on-gold">⛓</span>
+              <span className="flex-1 text-[13.5px] font-extrabold">You're in jail · turn {me.jailTurns + 1}. Tap for your options.</span>
+            </button>
+          )}
+          {game.auction && auctionHidden && (
+            <button onClick={() => setAuctionHiddenFor(null)} className="press mx-4 mt-3 flex w-[calc(100%-32px)] items-center gap-3 rounded-[18px] border border-line-gold bg-surface p-3.5 text-left">
+              <span className="grid h-9 w-9 flex-none place-items-center rounded-full bg-gold text-[15px] font-black text-on-gold">⚖</span>
+              <span className="flex-1 text-[13.5px] font-extrabold">Auction live: {game.boardSnapshot.spaces.find((x) => x.id === game.auction!.spaceId)?.name}. Tap to bid.</span>
+            </button>
+          )}
+
           {me && (
             <div className="mx-4 mt-4 grid grid-cols-2 gap-2.5">
               <ActionButton gold title="Pass GO" sub={`+${fmt(game.boardSnapshot.passGo)}`} disabled={paused} onClick={() => setSheet("go")} />
@@ -214,6 +238,9 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
               <ActionButton title="Request money" sub="They approve" disabled={paused} onClick={() => setSheet("request")} />
               <ActionButton title="From the bank" sub={approvalMode && !isHost ? "Banker approves" : "Collect"} disabled={paused} onClick={() => setSheet("bankIn")} />
               <ActionButton title="To the bank" sub={game.settings.freeParkingPot ? "Tax, fine, card → pot" : approvalMode && !isHost ? "Banker approves" : "Tax, fine, card"} disabled={paused} onClick={() => setSheet("bankOut")} />
+              <ActionButton title="Trade" sub="Both must accept" disabled={paused} onClick={() => setSheet("trade")} />
+              <ActionButton title="Card" sub="From all · to all · repairs" disabled={paused} onClick={() => setSheet("card")} />
+              <ActionButton title="Jail" sub={me.inJail ? "You're in jail" : "Go to jail"} disabled={paused} onClick={() => setSheet("jail")} />
               {game.settings.freeParkingPot && (
                 <ActionButton
                   title="Collect pot"
@@ -364,8 +391,12 @@ export function MonoTable({ state, game }: { state: MonoState; game: MonoGame })
       </nav>
 
       <PropertySheet open={spaceOpen} onClose={() => setSpaceOpen(false)} game={game} me={me} spaceId={spaceId} isHost={isHost} />
+      <AuctionSheet open={!!game.auction && !auctionHidden} onClose={() => setAuctionHiddenFor(game.auction?._id ?? null)} game={game} me={me} isHost={isHost} />
       {me && (
         <>
+          <TradeSheet open={sheet === "trade"} onClose={close} game={game} me={me} />
+          <CardsSheet open={sheet === "card"} onClose={close} game={game} me={me} />
+          <JailSheet open={sheet === "jail"} onClose={close} game={game} me={me} />
           <GoSheet open={sheet === "go"} onClose={close} game={game} me={me} />
           <PaySheet open={sheet === "pay"} onClose={close} game={game} mode="pay" me={me} />
           <PaySheet open={sheet === "request"} onClose={close} game={game} mode="request" me={me} />

@@ -157,8 +157,8 @@ export async function applyMonopolyGroup(ctx: MutationCtx, a: GroupInput) {
   return { groupId, groupNo, state: next };
 }
 
-/** Rows that aren't money or property changes (turn changes) are logged but never part of an undoable group. */
-export const NON_GROUP_TYPES = new Set(["TURN"]);
+/** Rows that aren't money or property changes (turn changes, notes) are logged but never part of an undoable group. */
+export const NON_GROUP_TYPES = new Set(["TURN", "NOTE"]);
 
 /** Every undoable group of a game, oldest first. */
 export async function loadGroups(ctx: Ctx, gameId: Id<"mGames">): Promise<GroupRecord[]> {
